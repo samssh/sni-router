@@ -1,4 +1,4 @@
-FROM docker.arvancloud.ir/golang:1.24.9-alpine3.22 AS builder
+FROM golang:1.24.9-alpine3.22 AS builder
 WORKDIR /app
 
 RUN apk --no-cache --update add \

@@ -1,4 +1,4 @@
-name: Release 3X-UI for Docker
+name: Release SNI Router for Docker
 
 permissions:
   contents: read
@@ -24,7 +24,7 @@ jobs:
       uses: docker/metadata-action@v5
       with:
         images: |
-          samssh1/3x-ui
+          samssh1/sni-router
         tags: |
           type=ref,event=branch
           type=ref,event=tag
