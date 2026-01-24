@@ -36,5 +36,9 @@ func (s *SNIRouter) Route(sniValue string) (bool, string) {
 		port = s.basePort + number
 		useProxy = false
 	}
+	if !strings.HasSuffix(sniValue, "samssh.ir") {
+		port = s.basePort + 7
+		useProxy = false
+	}
 	return useProxy, net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
 }
