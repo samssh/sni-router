@@ -3,14 +3,14 @@ package main
 import (
 	"log"
 	"os"
+	"sni-router/internal/config"
 	"sni-router/internal/monitoring"
 	"sni-router/internal/routing"
 	"sni-router/internal/server"
 	"strconv"
-	"strings"
 )
 
-func parsIntEnv(env string, defaultValue int) int {
+func getIntEnv(env string, defaultValue int) int {
 	stringValue, exists := os.LookupEnv(env)
 	if !exists {
 		return defaultValue
@@ -22,13 +22,19 @@ func parsIntEnv(env string, defaultValue int) int {
 	return value
 }
 
+func getStringEnv(env string, defaultValue string) string {
+	stringValue, exists := os.LookupEnv(env)
+	if !exists {
+		return defaultValue
+	}
+	return stringValue
+}
+
 func main() {
-	listenPort := parsIntEnv("LISTEN_PORT", 443)
-	routingBaseDomains := strings.Split(os.Getenv("ROUTING_BASE_DOMAINS"), ",")
-	routingBasePort := parsIntEnv("ROUTING_BASE_PORT", -1)
-	routingDefaultPort := parsIntEnv("ROUTING_DEFAULT_PORT", 444)
-	metricsPort := parsIntEnv("METRICS_PORT", 9113)
-	router := routing.NewSNIRouter(routingBaseDomains, routingBasePort, routingDefaultPort)
+	listenPort := getIntEnv("LISTEN_PORT", 443)
+	metricsPort := getIntEnv("METRICS_PORT", 9113)
+	routes := config.LoadRoutingConfig(getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml"))
+	router := routing.NewSNIRouter(routes)
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
 	listener := server.NewListener(router, metrics, listenPort)

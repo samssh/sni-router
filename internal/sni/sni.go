@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, err error) {
+func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, isTls bool, err error) {
 	startTime := time.Now()
 	defer func() {
 		if err != nil {
@@ -19,12 +19,12 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 	}()
 	header, err := r.Peek(5)
 	if err != nil {
-		return "", fmt.Errorf("failed to peek record header: %w", err)
+		return "", false, fmt.Errorf("failed to peek record header: %w", err)
 	}
 
 	// The first byte should be 22 for a handshake message.
 	if header[0] != 22 {
-		return "shadowsocks", nil
+		return "", false, nil
 	}
 
 	// The next two bytes are the TLS version.
@@ -34,12 +34,12 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 	// Peek the entire ClientHello message.
 	data, err := r.Peek(5 + recordLen)
 	if err != nil {
-		return "", fmt.Errorf("failed to peek client hello: %w", err)
+		return "", false, fmt.Errorf("failed to peek client hello: %w", err)
 	}
 	pos := 5
 	// Handshake type must be ClientHello (1)
 	if data[pos] != 0x01 {
-		return "", fmt.Errorf("not a ClientHello")
+		return "", false, nil
 	}
 
 	pos += 4 // Skip handshake type (1 byte) + length (3 bytes)
@@ -57,14 +57,14 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 
 	// Extensions length
 	if pos+2 > len(data) {
-		return "", fmt.Errorf("no extensions")
+		return "", false, nil
 	}
 	extensionsLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 	pos += 2
 
 	extensionsEnd := pos + extensionsLen
 	if extensionsEnd > len(data) {
-		return "", fmt.Errorf("extensions truncated")
+		return "", false, nil
 	}
 
 	for pos+4 <= extensionsEnd {
@@ -75,18 +75,18 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 		if extType == 0x00 { // SNI extension
 			sniData := data[pos : pos+extLen]
 			if len(sniData) < 5 {
-				return "", fmt.Errorf("invalid SNI extension")
+				return "", false, nil
 			}
 			sniLen := int(binary.BigEndian.Uint16(sniData[3:5]))
 			if 5+sniLen > len(sniData) {
-				return "", fmt.Errorf("SNI hostname truncated")
+				return "", false, nil
 			}
 			serverName := string(sniData[5 : 5+sniLen])
-			return serverName, nil
+			return serverName, true, nil
 		}
 
 		pos += extLen
 	}
 
-	return "", fmt.Errorf("SNI not found")
+	return "", false, nil
 }

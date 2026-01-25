@@ -2,13 +2,14 @@ package server
 
 import (
 	"fmt"
-	"github.com/pires/go-proxyproto"
 	"log"
 	"net"
 	"sni-router/internal/monitoring"
 	"sni-router/internal/routing"
 	"sni-router/internal/sni"
 	"time"
+
+	"github.com/pires/go-proxyproto"
 )
 
 type Listener struct {
@@ -55,12 +56,16 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	if err != nil {
 		log.Println("error setting write deadline", err)
 	}
-	sniValue, err := sni.ExtractSNI(ic.bufReader, l.metrics)
+	sniValue, isTls, err := sni.ExtractSNI(ic.bufReader, l.metrics)
 	if err != nil {
 		log.Printf("SNI extraction failed. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
 		return
 	}
-	useProxy, dstAddr := l.router.Route(sniValue)
+	useProxy, dstAddr, err := l.router.Route(sniValue, isTls)
+	if err != nil {
+		log.Printf("Route error. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
+		return
+	}
 	oc, err := dialTcp(dstAddr, sniValue, l.metrics)
 	if err != nil {
 		log.Println("Dial Error:" + err.Error())

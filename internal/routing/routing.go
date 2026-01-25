@@ -1,47 +1,62 @@
 package routing
 
 import (
-	"log"
+	"fmt"
 	"net"
+	"regexp"
 	"strconv"
-	"strings"
 )
 
+type Route struct {
+	Domain   string
+	Host     string
+	Port     int
+	UseRegex bool
+	UseProxy bool
+}
+
 type SNIRouter struct {
-	baseDomains []string
-	basePort    int
-	defaultPort int
+	nonTlsRoute  *Route
+	defaultRoute *Route
+	Routes       []Route
 }
 
-func NewSNIRouter(baseDomains []string, basePort int, defaultPort int) *SNIRouter {
-	return &SNIRouter{
-		baseDomains: baseDomains,
-		basePort:    basePort,
-		defaultPort: defaultPort,
+func NewSNIRouter(allRoutes []Route) *SNIRouter {
+	s := &SNIRouter{
+		Routes: make([]Route, 0, len(allRoutes)),
 	}
-}
 
-func (s *SNIRouter) Route(sniValue string) (bool, string) {
-	var port = s.defaultPort
-	var useProxy = true
-	if sniValue == "shadowsocks" {
-		useProxy = false
-		port = 8661
-	}
-	for _, baseDomain := range s.baseDomains {
-		if strings.HasSuffix(sniValue, baseDomain) {
-			number, err := strconv.Atoi(sniValue[:len(sniValue)-len(baseDomain)])
-			if err != nil {
-				log.Println("SNI parse failed:", err)
-			}
-			port = s.basePort + number
-			useProxy = false
-			break
+	for _, route := range allRoutes {
+		switch route.Domain {
+		case "non-tls":
+			s.nonTlsRoute = &route // or route := route; s.nonTlsRoute = &route
+		case "default":
+			s.defaultRoute = &route
+		default:
+			s.Routes = append(s.Routes, route)
 		}
 	}
-	if !strings.HasSuffix(sniValue, "samssh.ir") {
-		port = s.basePort + 7
-		useProxy = false
+
+	return s
+}
+
+func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, error) {
+	if !isTls {
+		if s.nonTlsRoute == nil {
+			return false, "", fmt.Errorf("no non-tls route for non-tls connection")
+		}
+		return s.nonTlsRoute.UseProxy, net.JoinHostPort(s.nonTlsRoute.Host, strconv.Itoa(s.nonTlsRoute.Port)), nil
 	}
-	return useProxy, net.JoinHostPort("127.0.0.1", strconv.Itoa(port))
+	for _, route := range s.Routes {
+		var match bool
+		if route.UseRegex {
+			match, _ = regexp.MatchString(route.Domain, sniValue)
+		} else {
+			match = route.Domain == sniValue
+		}
+		if match {
+			return true, net.JoinHostPort(route.Host, strconv.Itoa(route.Port)), nil
+		}
+	}
+	return s.defaultRoute.UseProxy, net.JoinHostPort(s.defaultRoute.Host, strconv.Itoa(s.defaultRoute.Port)), nil
 }
