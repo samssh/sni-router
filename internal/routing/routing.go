@@ -8,11 +8,11 @@ import (
 )
 
 type Route struct {
-	Domain   string
-	Host     string
-	Port     int
-	UseRegex bool
-	UseProxy bool
+	Domain   string `yaml:"domain"`
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port"`
+	UseRegex bool   `yaml:"useRegex"`
+	UseProxy bool   `yaml:"useProxy"`
 }
 
 type SNIRouter struct {
@@ -27,6 +27,9 @@ func NewSNIRouter(allRoutes []Route) *SNIRouter {
 	}
 
 	for _, route := range allRoutes {
+		if route.Host == "" {
+			route.Host = "127.0.0.1"
+		}
 		switch route.Domain {
 		case "non-tls":
 			s.nonTlsRoute = &route // or route := route; s.nonTlsRoute = &route
