@@ -62,7 +62,7 @@ func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, error) {
 			match = !match
 		}
 		if match {
-			return true, net.JoinHostPort(route.Host, strconv.Itoa(route.Port)), nil
+			return route.UseProxy, net.JoinHostPort(route.Host, strconv.Itoa(route.Port)), nil
 		}
 	}
 	return s.defaultRoute.UseProxy, net.JoinHostPort(s.defaultRoute.Host, strconv.Itoa(s.defaultRoute.Port)), nil
