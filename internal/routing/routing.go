@@ -8,14 +8,14 @@ import (
 )
 
 type SNIRouter struct {
-	baseDomain  string
+	baseDomains []string
 	basePort    int
 	defaultPort int
 }
 
-func NewSNIRouter(baseDomain string, basePort int, defaultPort int) *SNIRouter {
+func NewSNIRouter(baseDomains []string, basePort int, defaultPort int) *SNIRouter {
 	return &SNIRouter{
-		baseDomain:  baseDomain,
+		baseDomains: baseDomains,
 		basePort:    basePort,
 		defaultPort: defaultPort,
 	}
@@ -28,13 +28,16 @@ func (s *SNIRouter) Route(sniValue string) (bool, string) {
 		useProxy = false
 		port = 8661
 	}
-	if strings.HasSuffix(sniValue, s.baseDomain) {
-		number, err := strconv.Atoi(sniValue[:len(sniValue)-len(s.baseDomain)])
-		if err != nil {
-			log.Println("SNI parse failed:", err)
+	for _, baseDomain := range s.baseDomains {
+		if strings.HasSuffix(sniValue, baseDomain) {
+			number, err := strconv.Atoi(sniValue[:len(sniValue)-len(baseDomain)])
+			if err != nil {
+				log.Println("SNI parse failed:", err)
+			}
+			port = s.basePort + number
+			useProxy = false
+			break
 		}
-		port = s.basePort + number
-		useProxy = false
 	}
 	if !strings.HasSuffix(sniValue, "samssh.ir") {
 		port = s.basePort + 7

@@ -7,6 +7,7 @@ import (
 	"sni-router/internal/routing"
 	"sni-router/internal/server"
 	"strconv"
+	"strings"
 )
 
 func parsIntEnv(env string, defaultValue int) int {
@@ -23,11 +24,11 @@ func parsIntEnv(env string, defaultValue int) int {
 
 func main() {
 	listenPort := parsIntEnv("LISTEN_PORT", 443)
-	routingBaseDomain := os.Getenv("ROUTING_BASE_DOMAIN")
+	routingBaseDomains := strings.Split(os.Getenv("ROUTING_BASE_DOMAINS"), ",")
 	routingBasePort := parsIntEnv("ROUTING_BASE_PORT", -1)
 	routingDefaultPort := parsIntEnv("ROUTING_DEFAULT_PORT", 444)
 	metricsPort := parsIntEnv("METRICS_PORT", 9113)
-	router := routing.NewSNIRouter(routingBaseDomain, routingBasePort, routingDefaultPort)
+	router := routing.NewSNIRouter(routingBaseDomains, routingBasePort, routingDefaultPort)
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
 	listener := server.NewListener(router, metrics, listenPort)
