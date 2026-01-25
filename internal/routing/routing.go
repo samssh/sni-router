@@ -8,11 +8,12 @@ import (
 )
 
 type Route struct {
-	Domain   string `yaml:"domain"`
-	Host     string `yaml:"host"`
-	Port     int    `yaml:"port"`
-	UseRegex bool   `yaml:"useRegex"`
-	UseProxy bool   `yaml:"useProxy"`
+	Domain       string `yaml:"domain"`
+	Host         string `yaml:"host"`
+	Port         int    `yaml:"port"`
+	UseRegex     bool   `yaml:"useRegex"`
+	UseProxy     bool   `yaml:"useProxy"`
+	ReverseMatch bool   `yaml:"reverseMatch"`
 }
 
 type SNIRouter struct {
@@ -56,6 +57,9 @@ func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, error) {
 			match, _ = regexp.MatchString(route.Domain, sniValue)
 		} else {
 			match = route.Domain == sniValue
+		}
+		if route.ReverseMatch {
+			match = !match
 		}
 		if match {
 			return true, net.JoinHostPort(route.Host, strconv.Itoa(route.Port)), nil
