@@ -11,6 +11,13 @@ import (
 func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, isTls bool, err error) {
 	startTime := time.Now()
 	defer func() {
+		if rec := recover(); rec != nil {
+			// fallback to non-tls
+			sniValue = ""
+			isTls = false
+			err = nil
+		}
+
 		if err != nil {
 			metrics.ObserveParsedSni("error", time.Since(startTime))
 		} else {
