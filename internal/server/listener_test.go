@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -318,6 +319,47 @@ func TestListenerSetRouter(t *testing.T) {
 	}
 	if string(body) != "other" {
 		t.Fatalf("body after reload = %q, want other", body)
+	}
+}
+
+func TestListenerShutdownForceCloses(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := routing.NewSNIRouter([]routing.Route{
+		{Domain: "default", Host: "127.0.0.1", Port: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := NewListener(router, newTestMetrics(), 0)
+	listener.ln = ln
+	go listener.serve(ln)
+
+	client, err := net.Dial("tcp", ln.Addr().String())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	time.Sleep(100 * time.Millisecond)
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
+	defer cancel()
+	if err := listener.Shutdown(ctx); err == nil {
+		t.Fatal("expected shutdown timeout")
+	}
+
+	if err := client.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	_, err = client.Read(make([]byte, 1))
+	if err == nil {
+		t.Fatal("expected connection to be closed")
+	}
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		t.Fatal("connection still open after shutdown")
 	}
 }
 

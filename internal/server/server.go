@@ -28,12 +28,15 @@ type Listener struct {
 	inflight sync.WaitGroup
 	dropUID  int
 	dropGID  int
+	connsMu  sync.Mutex
+	conns    map[net.Conn]struct{}
 }
 
 func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port int) *Listener {
 	l := &Listener{
 		metrics: metrics,
 		port:    port,
+		conns:   make(map[net.Conn]struct{}),
 	}
 	l.router.Store(router)
 	return l
@@ -104,7 +107,36 @@ func (l *Listener) Shutdown(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		l.closeActive()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+		}
 		return ctx.Err()
+	}
+}
+
+func (l *Listener) addConn(c net.Conn) {
+	l.connsMu.Lock()
+	l.conns[c] = struct{}{}
+	l.connsMu.Unlock()
+}
+
+func (l *Listener) removeConn(c net.Conn) {
+	l.connsMu.Lock()
+	delete(l.conns, c)
+	l.connsMu.Unlock()
+}
+
+func (l *Listener) closeActive() {
+	l.connsMu.Lock()
+	conns := make([]net.Conn, 0, len(l.conns))
+	for c := range l.conns {
+		conns = append(conns, c)
+	}
+	l.connsMu.Unlock()
+	for _, c := range conns {
+		_ = c.Close()
 	}
 }
 
@@ -135,9 +167,11 @@ func (l *Listener) serve(ln net.Listener) {
 				continue
 			}
 		}
+		l.addConn(conn)
 		l.inflight.Add(1)
 		go func() {
 			defer l.inflight.Done()
+			defer l.removeConn(conn)
 			defer func() {
 				if l.sem != nil {
 					<-l.sem
