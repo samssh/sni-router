@@ -115,6 +115,23 @@ func TestExtractSNI(t *testing.T) {
 			input:   malformedPanic,
 			wantErr: true,
 		},
+		{
+			name:    "empty sni is rejected",
+			input:   buildClientHelloWithSNI(""),
+			wantErr: true,
+		},
+		{
+			name:    "sni with nul is rejected",
+			input:   buildClientHelloWithSNI("bad\x00name.example.com"),
+			wantErr: true,
+		},
+		{
+			name:      "client hello split across two records",
+			input:     splitTLSRecords(validHello),
+			wantSNI:   "prom.example.com",
+			wantTLS:   true,
+			checkPeek: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -149,10 +166,48 @@ func TestExtractSNI(t *testing.T) {
 	}
 }
 
+func buildClientHelloWithSNI(name string) []byte {
+	nameBytes := []byte(name)
+	sniName := []byte{0x00, byte(len(nameBytes) >> 8), byte(len(nameBytes))}
+	sniName = append(sniName, nameBytes...)
+	sniList := []byte{byte(len(sniName) >> 8), byte(len(sniName))}
+	sniList = append(sniList, sniName...)
+	ext := []byte{0x00, 0x00, byte(len(sniList) >> 8), byte(len(sniList))}
+	ext = append(ext, sniList...)
+	extensions := []byte{byte(len(ext) >> 8), byte(len(ext))}
+	extensions = append(extensions, ext...)
+
+	body := []byte{0x03, 0x03}
+	body = append(body, make([]byte, 32)...)
+	body = append(body, 0x00)
+	body = append(body, 0x00, 0x02, 0x00, 0x2f)
+	body = append(body, 0x01, 0x00)
+	body = append(body, extensions...)
+
+	hsLen := len(body)
+	handshake := []byte{0x01, byte(hsLen >> 16), byte(hsLen >> 8), byte(hsLen)}
+	handshake = append(handshake, body...)
+	recLen := len(handshake)
+	return append([]byte{0x16, 0x03, 0x01, byte(recLen >> 8), byte(recLen)}, handshake...)
+}
+
+func splitTLSRecords(hello []byte) []byte {
+	payload := hello[5:]
+	mid := len(payload) / 2
+	if mid < 8 {
+		mid = 8
+	}
+	rec1 := []byte{0x16, hello[1], hello[2], byte(mid >> 8), byte(mid)}
+	rec1 = append(rec1, payload[:mid]...)
+	rest := payload[mid:]
+	rec2 := []byte{0x16, hello[1], hello[2], byte(len(rest) >> 8), byte(len(rest))}
+	return append(rec1, append(rec2, rest...)...)
+}
+
 func buildClientHelloWithoutSNI() []byte {
 	// Minimal ClientHello: handshake record, no extensions.
 	// handshake: type=1, length=43 (2 ver + 32 random + 1 sid + 2 cipher len + 2 cipher + 1 comp)
-	handshake := []byte{0x01, 0x00, 0x00, 0x2b}
+	handshake := []byte{0x01, 0x00, 0x00, 0x29}
 	handshake = append(handshake, 0x03, 0x03)       // version
 	handshake = append(handshake, make([]byte, 32)...) // random
 	handshake = append(handshake, 0x00)             // session id len
