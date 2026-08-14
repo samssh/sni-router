@@ -78,7 +78,6 @@ func newInboundConnection(conn net.Conn, metrics *monitoring.Metrics) *InboundCo
 type OutboundConnection struct {
 	connection
 	sniValue string
-	writeMu  sync.Mutex
 }
 
 func (oc *OutboundConnection) Read(p []byte) (int, error) {
@@ -88,8 +87,6 @@ func (oc *OutboundConnection) Read(p []byte) (int, error) {
 }
 
 func (oc *OutboundConnection) Write(p []byte) (int, error) {
-	oc.writeMu.Lock()
-	defer oc.writeMu.Unlock()
 	n, err := oc.conn.Write(p)
 	oc.metrics.ObserveWriteByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, n)
 	return n, err
