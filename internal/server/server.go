@@ -72,12 +72,12 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	if err := ic.conn.SetDeadline(time.Time{}); err != nil {
 		log.Println("error clearing read deadline", err)
 	}
-	useProxy, dstAddr, err := l.router.Route(sniValue, isTls)
+	useProxy, dstAddr, dialTimeout, err := l.router.Route(sniValue, isTls)
 	if err != nil {
 		log.Printf("Route error. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
 		return
 	}
-	oc, err := dialTcp(dstAddr, sniValue, l.metrics)
+	oc, err := dialTcp(dstAddr, sniValue, dialTimeout, l.metrics)
 	if err != nil {
 		log.Println("Dial Error:" + err.Error())
 		return
@@ -92,8 +92,11 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	CopyStreamsBidirectional(ic, oc)
 }
 
-func dialTcp(dstAddr string, sniValue string, metrics *monitoring.Metrics) (*OutboundConnection, error) {
-	dst, err := net.DialTimeout("tcp", dstAddr, 10*time.Second)
+func dialTcp(dstAddr string, sniValue string, timeout time.Duration, metrics *monitoring.Metrics) (*OutboundConnection, error) {
+	if timeout <= 0 {
+		timeout = time.Duration(routing.DefaultDialTimeoutSeconds) * time.Second
+	}
+	dst, err := net.DialTimeout("tcp", dstAddr, timeout)
 	if err != nil {
 		return nil, err
 	}

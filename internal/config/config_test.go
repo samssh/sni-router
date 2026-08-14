@@ -14,6 +14,7 @@ func TestLoadRoutingConfig(t *testing.T) {
   host: 10.0.0.1
   port: 8443
   useProxy: true
+  dialTimeout: 5
 - domain: default
   host: 127.0.0.1
   port: 443
@@ -28,7 +29,7 @@ func TestLoadRoutingConfig(t *testing.T) {
 		if len(routes) != 2 {
 			t.Fatalf("got %d routes, want 2", len(routes))
 		}
-		if routes[0].Domain != "prom.example.com" || routes[0].Host != "10.0.0.1" || routes[0].Port != 8443 || !routes[0].UseProxy {
+		if routes[0].Domain != "prom.example.com" || routes[0].Host != "10.0.0.1" || routes[0].Port != 8443 || !routes[0].UseProxy || routes[0].DialTimeout != 5 {
 			t.Fatalf("unexpected first route: %+v", routes[0])
 		}
 		if routes[1].Domain != "default" {

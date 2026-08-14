@@ -3,6 +3,7 @@ package routing
 import (
 	"strings"
 	"testing"
+	"time"
 )
 
 func mustRouter(t *testing.T, routes []Route) *SNIRouter {
@@ -70,7 +71,7 @@ func TestRoute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			useProxy, addr, err := router.Route(tt.sni, tt.isTLS)
+			useProxy, addr, _, err := router.Route(tt.sni, tt.isTLS)
 			if tt.wantErr {
 				if err == nil {
 					t.Fatal("expected error")
@@ -96,7 +97,7 @@ func TestRouteFirstMatchWins(t *testing.T) {
 		{Domain: "app.example.com", Host: "10.0.0.2", Port: 2},
 		{Domain: "default", Host: "10.0.0.9", Port: 443},
 	})
-	_, addr, err := router.Route("app.example.com", true)
+	_, addr, _, err := router.Route("app.example.com", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +111,7 @@ func TestEmptyHostDefaultsToLocalhost(t *testing.T) {
 		{Domain: "app.example.com", Port: 9443},
 		{Domain: "default", Port: 443},
 	})
-	_, addr, err := router.Route("app.example.com", true)
+	_, addr, _, err := router.Route("app.example.com", true)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,7 +124,7 @@ func TestNonTLSMissingRoute(t *testing.T) {
 	router := mustRouter(t, []Route{
 		{Domain: "default", Host: "10.0.0.9", Port: 443},
 	})
-	_, _, err := router.Route("", false)
+	_, _, _, err := router.Route("", false)
 	if err == nil {
 		t.Fatal("expected error when non-tls route is missing")
 	}
@@ -157,11 +158,32 @@ func TestCompiledRegexIsReused(t *testing.T) {
 	if router.Routes[0].compiled == nil {
 		t.Fatal("expected regex to be compiled at construction")
 	}
-	_, addr, err := router.Route("prom.example.com", true)
+	_, addr, _, err := router.Route("prom.example.com", true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if addr != "10.0.0.1:8443" {
 		t.Fatalf("addr = %q", addr)
+	}
+}
+
+func TestDialTimeoutDefaultAndOverride(t *testing.T) {
+	router := mustRouter(t, []Route{
+		{Domain: "slow.example.com", Host: "10.0.0.1", Port: 443, DialTimeout: 3},
+		{Domain: "default", Host: "10.0.0.9", Port: 443},
+	})
+	_, _, timeout, err := router.Route("slow.example.com", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout != 3*time.Second {
+		t.Fatalf("timeout = %s, want 3s", timeout)
+	}
+	_, _, timeout, err = router.Route("other.example.com", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if timeout != DefaultDialTimeoutSeconds*time.Second {
+		t.Fatalf("default timeout = %s, want %ds", timeout, DefaultDialTimeoutSeconds)
 	}
 }
