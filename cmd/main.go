@@ -33,8 +33,14 @@ func getStringEnv(env string, defaultValue string) string {
 func main() {
 	listenPort := getIntEnv("LISTEN_PORT", 443)
 	metricsPort := getIntEnv("METRICS_PORT", 9113)
-	routes := config.LoadRoutingConfig(getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml"))
-	router := routing.NewSNIRouter(routes)
+	routes, err := config.LoadRoutingConfig(getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml"))
+	if err != nil {
+		log.Fatal(err)
+	}
+	router, err := routing.NewSNIRouter(routes)
+	if err != nil {
+		log.Fatal(err)
+	}
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
 	listener := server.NewListener(router, metrics, listenPort)

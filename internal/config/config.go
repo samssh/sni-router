@@ -1,22 +1,22 @@
 package config
 
 import (
-	"log"
+	"fmt"
 	"os"
 	"sni-router/internal/routing"
 
 	"gopkg.in/yaml.v3"
 )
 
-func LoadRoutingConfig(configPath string) []routing.Route {
+func LoadRoutingConfig(configPath string) ([]routing.Route, error) {
 	file, err := os.ReadFile(configPath)
 	if err != nil {
-		log.Fatalf("Error reading YAML file: %v", err)
+		return nil, fmt.Errorf("error reading YAML file: %w", err)
 	}
 	var routes []routing.Route
 	err = yaml.Unmarshal(file, &routes)
 	if err != nil {
-		log.Fatalf("Error unmarshalling YAML: %v", err)
+		return nil, fmt.Errorf("error unmarshalling YAML: %w", err)
 	}
-	return routes
+	return routes, nil
 }

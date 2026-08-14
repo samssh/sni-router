@@ -14,6 +14,7 @@ type Route struct {
 	UseRegex     bool   `yaml:"useRegex"`
 	UseProxy     bool   `yaml:"useProxy"`
 	ReverseMatch bool   `yaml:"reverseMatch"`
+	compiled     *regexp.Regexp
 }
 
 type SNIRouter struct {
@@ -22,7 +23,7 @@ type SNIRouter struct {
 	Routes       []Route
 }
 
-func NewSNIRouter(allRoutes []Route) *SNIRouter {
+func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 	s := &SNIRouter{
 		Routes: make([]Route, 0, len(allRoutes)),
 	}
@@ -31,9 +32,16 @@ func NewSNIRouter(allRoutes []Route) *SNIRouter {
 		if route.Host == "" {
 			route.Host = "127.0.0.1"
 		}
+		if route.UseRegex {
+			re, err := regexp.Compile(route.Domain)
+			if err != nil {
+				return nil, fmt.Errorf("invalid regex for domain %q: %w", route.Domain, err)
+			}
+			route.compiled = re
+		}
 		switch route.Domain {
 		case "non-tls":
-			s.nonTlsRoute = &route // or route := route; s.nonTlsRoute = &route
+			s.nonTlsRoute = &route
 		case "default":
 			s.defaultRoute = &route
 		default:
@@ -41,7 +49,7 @@ func NewSNIRouter(allRoutes []Route) *SNIRouter {
 		}
 	}
 
-	return s
+	return s, nil
 }
 
 func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, error) {
@@ -54,7 +62,7 @@ func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, error) {
 	for _, route := range s.Routes {
 		var match bool
 		if route.UseRegex {
-			match, _ = regexp.MatchString(route.Domain, sniValue)
+			match = route.compiled != nil && route.compiled.MatchString(sniValue)
 		} else {
 			match = route.Domain == sniValue
 		}
