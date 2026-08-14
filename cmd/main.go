@@ -21,7 +21,7 @@ func getIntEnv(env string, defaultValue int) int {
 	}
 	value, err := strconv.Atoi(stringValue)
 	if err != nil {
-		log.Fatalf("could not pars %s: %s", env, err.Error())
+		log.Fatalf("could not parse %s: %s", env, err.Error())
 	}
 	return value
 }
