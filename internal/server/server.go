@@ -52,6 +52,7 @@ func (l *Listener) serve(ln net.Listener) {
 			log.Println("Accept error:", err)
 			continue
 		}
+		enableKeepAlive(conn)
 		go l.handleConnection(conn)
 	}
 }
@@ -100,7 +101,17 @@ func dialTcp(dstAddr string, sniValue string, timeout time.Duration, metrics *mo
 	if err != nil {
 		return nil, err
 	}
+	enableKeepAlive(dst)
 	return newOutboundConnection(dst, sniValue, metrics), nil
+}
+
+func enableKeepAlive(conn net.Conn) {
+	tcp, ok := conn.(*net.TCPConn)
+	if !ok {
+		return
+	}
+	_ = tcp.SetKeepAlive(true)
+	_ = tcp.SetKeepAlivePeriod(30 * time.Second)
 }
 
 func writeProxyHeader(ic *InboundConnection, oc *OutboundConnection) error {
