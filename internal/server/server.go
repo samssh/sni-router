@@ -54,12 +54,15 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	// Peek into the initial data to parse the ClientHello
 	err := ic.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if err != nil {
-		log.Println("error setting write deadline", err)
+		log.Println("error setting read deadline", err)
 	}
 	sniValue, isTls, err := sni.ExtractSNI(ic.bufReader, l.metrics)
 	if err != nil {
 		log.Printf("SNI extraction failed. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
 		return
+	}
+	if err := ic.conn.SetDeadline(time.Time{}); err != nil {
+		log.Println("error clearing read deadline", err)
 	}
 	useProxy, dstAddr, err := l.router.Route(sniValue, isTls)
 	if err != nil {

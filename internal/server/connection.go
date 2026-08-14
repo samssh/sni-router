@@ -29,20 +29,12 @@ type InboundConnection struct {
 }
 
 func (ic *InboundConnection) Read(p []byte) (int, error) {
-	err := ic.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	if err != nil {
-		log.Println("error setting read deadline", err)
-	}
 	n, err := ic.bufReader.Read(p)
 	ic.metrics.ObserveReadByteInboundConnection(n)
 	return n, err
 }
 
 func (ic *InboundConnection) Write(p []byte) (int, error) {
-	err := ic.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	if err != nil {
-		log.Println("error setting write deadline", err)
-	}
 	n, err := ic.conn.Write(p)
 	ic.metrics.ObserveWriteByteInboundConnection(n)
 	return n, err
@@ -77,10 +69,6 @@ type OutboundConnection struct {
 }
 
 func (oc *OutboundConnection) Read(p []byte) (int, error) {
-	err := oc.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
-	if err != nil {
-		log.Println("error setting read deadline", err)
-	}
 	n, err := oc.bufReader.Read(p)
 	oc.metrics.ObserveReadByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, n)
 	return n, err
@@ -89,10 +77,6 @@ func (oc *OutboundConnection) Read(p []byte) (int, error) {
 func (oc *OutboundConnection) Write(p []byte) (int, error) {
 	oc.writeMu.Lock()
 	defer oc.writeMu.Unlock()
-	err := oc.conn.SetWriteDeadline(time.Now().Add(30 * time.Second))
-	if err != nil {
-		log.Println("error setting write deadline", err)
-	}
 	n, err := oc.conn.Write(p)
 	oc.metrics.ObserveWriteByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, n)
 	return n, err
