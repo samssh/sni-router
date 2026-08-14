@@ -40,6 +40,14 @@ func (ic *InboundConnection) Write(p []byte) (int, error) {
 	return n, err
 }
 
+func (c *connection) CloseWrite() {
+	if tcp, ok := c.conn.(*net.TCPConn); ok {
+		_ = tcp.CloseWrite()
+		return
+	}
+	_ = c.conn.Close()
+}
+
 func (ic *InboundConnection) Close() {
 	ic.once.Do(func() {
 		err := ic.conn.Close()

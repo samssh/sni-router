@@ -91,11 +91,11 @@ func TestProxyHeaderWrittenBeforePayload(t *testing.T) {
 			oc.Close()
 			t.Fatal(err)
 		}
+		_ = client.Close()
 
 		done := make(chan struct{})
 		go func() {
 			CopyStreamsBidirectional(ic, oc)
-			_ = client.Close()
 			close(done)
 		}()
 		select {

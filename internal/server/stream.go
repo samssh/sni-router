@@ -9,21 +9,30 @@ import (
 	"sync"
 )
 
-func copyStreams(wg *sync.WaitGroup, ic Connection, oc Connection) {
-	defer ic.Close()
-	defer oc.Close()
+func copyStreams(wg *sync.WaitGroup, src Connection, dst Connection) {
 	defer wg.Done()
-	_, err := io.Copy(oc, ic)
+	_, err := io.Copy(dst, src)
 	if err != nil && !isExpectedCopyError(err) {
 		log.Println("error in copy", err)
 	}
+	closeWrite(dst)
+}
+
+func closeWrite(c Connection) {
+	if cw, ok := c.(interface{ CloseWrite() }); ok {
+		cw.CloseWrite()
+		return
+	}
+	c.Close()
 }
 
 func isExpectedCopyError(err error) bool {
 	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
 		return true
 	}
-	return strings.Contains(err.Error(), "use of closed network connection")
+	msg := err.Error()
+	return strings.Contains(msg, "use of closed network connection") ||
+		strings.Contains(msg, "closed pipe")
 }
 
 func CopyStreamsBidirectional(ic *InboundConnection, oc *OutboundConnection) {
