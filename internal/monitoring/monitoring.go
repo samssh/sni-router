@@ -70,70 +70,75 @@ func (m *Metrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite 
 }
 
 func NewMetrics() *Metrics {
+	return NewMetricsWithRegisterer(prometheus.DefaultRegisterer)
+}
+
+func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
+	factory := promauto.With(reg)
 	namespace := "sni_router"
 	buckets := []float64{.25, .5, 1, 2.5, 5, 10, 15, 20, 25, 30, 40, 60, 100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000}
 	return &Metrics{
 		// inbound connections
-		inboundConnectionsTotal: promauto.NewCounter(prometheus.CounterOpts{
+		inboundConnectionsTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_total",
 			Help:      "The total number of inbound connections",
 		}),
-		inboundConnectionsOpen: promauto.NewGauge(prometheus.GaugeOpts{
+		inboundConnectionsOpen: factory.NewGauge(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_open",
 			Help:      "Number of open inbound connections",
 		}),
-		inboundConnectionsBytesInTotal: promauto.NewCounter(prometheus.CounterOpts{
+		inboundConnectionsBytesInTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_bytes_in_total",
 			Help:      "Total number of bytes received from inbound connections",
 		}),
-		inboundConnectionsBytesOutTotal: promauto.NewCounter(prometheus.CounterOpts{
+		inboundConnectionsBytesOutTotal: factory.NewCounter(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_bytes_out_total",
 			Help:      "Total number of bytes sent to inbound connections",
 		}),
-		inboundConnectionsTimeSeconds: promauto.NewHistogram(prometheus.HistogramOpts{
+		inboundConnectionsTimeSeconds: factory.NewHistogram(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_time_seconds",
 			Help:      "Histogram of time to inbound connections is open in seconds",
 			Buckets:   buckets,
 		}),
 		// sni parsing
-		sniParsedTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		sniParsedTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "sni_parsed_total",
 			Help:      "Total number of snis parsed successfully or with error",
 		}, []string{"sni"}),
-		sniParseTimeSeconds: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		sniParseTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "sni_parsed_time_Seconds",
 			Help:      "Histogram of time to sni parse successfully or with error in seconds",
 			Buckets:   buckets,
 		}, []string{"sni"}),
 		// outbound connection
-		outboundConnectionsTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		outboundConnectionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_total",
 			Help:      "Total number of outbound connections",
 		}, []string{"dst", "sni"}),
-		outboundConnectionsOpen: promauto.NewGaugeVec(prometheus.GaugeOpts{
+		outboundConnectionsOpen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_open",
 			Help:      "Number of open outbound connections",
 		}, []string{"dst", "sni"}),
-		outboundConnectionsBytesInTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		outboundConnectionsBytesInTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_in_total",
 			Help:      "Total number of bytes received from outbound connections",
 		}, []string{"dst", "sni"}),
-		outboundConnectionsBytesOutTotal: promauto.NewCounterVec(prometheus.CounterOpts{
+		outboundConnectionsBytesOutTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_out_total",
 			Help:      "Total number of bytes sent to outbound connections",
 		}, []string{"dst", "sni"}),
-		outboundConnectionsTimeSeconds: promauto.NewHistogramVec(prometheus.HistogramOpts{
+		outboundConnectionsTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_time_seconds",
 			Help:      "Histogram of time to outbound connections is open in seconds",

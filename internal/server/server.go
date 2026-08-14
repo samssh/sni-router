@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -38,9 +39,16 @@ func (l *Listener) Listen() {
 		}
 	}()
 	log.Println("Listening on :443")
+	l.serve(ln)
+}
+
+func (l *Listener) serve(ln net.Listener) {
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
+			if errors.Is(err, net.ErrClosed) {
+				return
+			}
 			log.Println("Accept error:", err)
 			continue
 		}
