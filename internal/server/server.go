@@ -71,8 +71,12 @@ func (l *Listener) handleConnection(conn net.Conn) {
 		log.Println("Dial Error:" + err.Error())
 		return
 	}
+	defer oc.Close()
 	if useProxy {
-		writeProxyHeader(ic, oc)
+		if err := writeProxyHeader(ic, oc); err != nil {
+			log.Println("write proxy header failed:" + err.Error())
+			return
+		}
 	}
 	CopyStreamsBidirectional(ic, oc)
 }
@@ -85,12 +89,8 @@ func dialTcp(dstAddr string, sniValue string, metrics *monitoring.Metrics) (*Out
 	return newOutboundConnection(dst, sniValue, metrics), nil
 }
 
-func writeProxyHeader(ic *InboundConnection, oc *OutboundConnection) {
+func writeProxyHeader(ic *InboundConnection, oc *OutboundConnection) error {
 	headers := proxyproto.HeaderProxyFromAddrs(2, ic.conn.RemoteAddr(), ic.conn.LocalAddr())
-	go func() {
-		_, err := headers.WriteTo(oc)
-		if err != nil {
-			log.Println("write proxy header failed:" + err.Error())
-		}
-	}()
+	_, err := headers.WriteTo(oc)
+	return err
 }
