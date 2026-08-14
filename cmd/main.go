@@ -63,7 +63,8 @@ func main() {
 	go metrics.Start(metricsPort)
 	listener := server.NewListener(router, metrics, listenPort).
 		WithListenAddr(getStringEnv("LISTEN_ADDR", "")).
-		WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
+		WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0)).
+		WithDropPrivileges(getIntEnv("DROP_UID", 0), getIntEnv("DROP_GID", 0))
 	go listener.Listen()
 
 	hup := make(chan os.Signal, 1)

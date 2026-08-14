@@ -26,6 +26,8 @@ type Listener struct {
 	sem      chan struct{}
 	ln       net.Listener
 	inflight sync.WaitGroup
+	dropUID  int
+	dropGID  int
 }
 
 func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port int) *Listener {
@@ -61,6 +63,12 @@ func (l *Listener) WithMaxConns(n int) *Listener {
 	return l
 }
 
+func (l *Listener) WithDropPrivileges(uid, gid int) *Listener {
+	l.dropUID = uid
+	l.dropGID = gid
+	return l
+}
+
 func (l *Listener) Listen() {
 	ln, err := net.Listen("tcp", l.listenAddr())
 	if err != nil {
@@ -73,6 +81,12 @@ func (l *Listener) Listen() {
 			log.Println(err)
 		}
 	}()
+	if l.dropUID > 0 || l.dropGID > 0 {
+		if err := dropPrivileges(l.dropUID, l.dropGID); err != nil {
+			log.Fatalf("drop privileges: %s", err)
+		}
+		log.Printf("dropped privileges uid=%d gid=%d", l.dropUID, l.dropGID)
+	}
 	log.Printf("Listening on %s", l.listenAddr())
 	l.serve(ln)
 }
