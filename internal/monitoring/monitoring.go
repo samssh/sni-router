@@ -46,27 +46,41 @@ func (m *Metrics) ObserveWriteByteInboundConnection(byteWritten int) {
 	m.inboundConnectionsBytesOutTotal.Add(float64(byteWritten))
 }
 
+func sniLabel(sni string) string {
+	switch sni {
+	case "error":
+		return "error"
+	case "":
+		return "empty"
+	default:
+		return "present"
+	}
+}
+
 func (m *Metrics) ObserveParsedSni(sniParsed string, parseTime time.Duration) {
-	m.sniParsedTotal.WithLabelValues(sniParsed).Inc()
-	m.sniParseTimeSeconds.WithLabelValues(sniParsed).Observe(parseTime.Seconds())
+	label := sniLabel(sniParsed)
+	m.sniParsedTotal.WithLabelValues(label).Inc()
+	m.sniParseTimeSeconds.WithLabelValues(label).Observe(parseTime.Seconds())
 }
 
 func (m *Metrics) ObserveOpenOutboundConnection(dst, sni string) {
+	sni = sniLabel(sni)
 	m.outboundConnectionsTotal.WithLabelValues(dst, sni).Inc()
 	m.outboundConnectionsOpen.WithLabelValues(dst, sni).Inc()
 }
 
 func (m *Metrics) ObserveCloseOutboundConnection(dst, sni string, openTime time.Duration) {
+	sni = sniLabel(sni)
 	m.outboundConnectionsOpen.WithLabelValues(dst, sni).Dec()
 	m.outboundConnectionsTimeSeconds.WithLabelValues(dst, sni).Observe(openTime.Seconds())
 }
 
 func (m *Metrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead int) {
-	m.outboundConnectionsBytesInTotal.WithLabelValues(dst, sni).Add(float64(byteRead))
+	m.outboundConnectionsBytesInTotal.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteRead))
 }
 
 func (m *Metrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
-	m.outboundConnectionsBytesOutTotal.WithLabelValues(dst, sni).Add(float64(byteWrite))
+	m.outboundConnectionsBytesOutTotal.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteWrite))
 }
 
 func NewMetrics() *Metrics {

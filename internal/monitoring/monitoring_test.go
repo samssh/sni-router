@@ -78,13 +78,13 @@ func TestObserveHelpers(t *testing.T) {
 	if got := metricValue(t, reg, "sni_router_inbound_connections_bytes_out_total", nil); got != 4 {
 		t.Fatalf("inbound bytes out = %v, want 4", got)
 	}
-	if got := metricValue(t, reg, "sni_router_sni_parsed_total", map[string]string{"sni": "prom.example.com"}); got != 1 {
+	if got := metricValue(t, reg, "sni_router_sni_parsed_total", map[string]string{"sni": "present"}); got != 1 {
 		t.Fatalf("sni parsed = %v, want 1", got)
 	}
-	if got := metricValue(t, reg, "sni_router_outbound_connections_total", map[string]string{"dst": "127.0.0.1:8443", "sni": "prom.example.com"}); got != 1 {
+	if got := metricValue(t, reg, "sni_router_outbound_connections_total", map[string]string{"dst": "127.0.0.1:8443", "sni": "present"}); got != 1 {
 		t.Fatalf("outbound total = %v, want 1", got)
 	}
-	if got := metricValue(t, reg, "sni_router_outbound_connections_open", map[string]string{"dst": "127.0.0.1:8443", "sni": "prom.example.com"}); got != 0 {
+	if got := metricValue(t, reg, "sni_router_outbound_connections_open", map[string]string{"dst": "127.0.0.1:8443", "sni": "present"}); got != 0 {
 		t.Fatalf("outbound open = %v, want 0", got)
 	}
 }
