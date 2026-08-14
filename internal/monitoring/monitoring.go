@@ -163,5 +163,7 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 
 func (*Metrics) Start(port int) {
 	log.Printf("Server is running on :%d\n", port)
-	log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", port), promhttp.Handler()))
+	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), promhttp.Handler()); err != nil {
+		log.Printf("metrics server failed: %s", err)
+	}
 }
