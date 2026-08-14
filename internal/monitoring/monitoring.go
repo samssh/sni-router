@@ -90,7 +90,8 @@ func NewMetrics() *Metrics {
 func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 	factory := promauto.With(reg)
 	namespace := "sni_router"
-	buckets := []float64{.25, .5, 1, 2.5, 5, 10, 15, 20, 25, 30, 40, 60, 100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000}
+	parseBuckets := []float64{.25, .5, 1, 2.5, 5, 10, 15, 20, 25, 30, 40, 60, 100, 200, 300, 500, 1000, 2000, 4000, 8000, 16000}
+	connBuckets := append(append([]float64{}, parseBuckets...), 28800, 43200, 86400, 172800, 604800)
 	return &Metrics{
 		// inbound connections
 		inboundConnectionsTotal: factory.NewCounter(prometheus.CounterOpts{
@@ -117,7 +118,7 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Namespace: namespace,
 			Name:      "inbound_connections_time_seconds",
 			Help:      "Histogram of time to inbound connections is open in seconds",
-			Buckets:   buckets,
+			Buckets:   connBuckets,
 		}),
 		// sni parsing
 		sniParsedTotal: factory.NewCounterVec(prometheus.CounterOpts{
@@ -129,7 +130,7 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Namespace: namespace,
 			Name:      "sni_parsed_time_seconds",
 			Help:      "Histogram of time to sni parse successfully or with error in seconds",
-			Buckets:   buckets,
+			Buckets:   parseBuckets,
 		}, []string{"sni"}),
 		// outbound connection
 		outboundConnectionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
@@ -156,7 +157,7 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Namespace: namespace,
 			Name:      "outbound_connections_time_seconds",
 			Help:      "Histogram of time to outbound connections is open in seconds",
-			Buckets:   buckets,
+			Buckets:   connBuckets,
 		}, []string{"dst", "sni"}),
 	}
 }
