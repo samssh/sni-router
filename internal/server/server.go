@@ -14,9 +14,11 @@ import (
 )
 
 type Listener struct {
-	router  *routing.SNIRouter
-	metrics *monitoring.Metrics
-	port    int
+	router   *routing.SNIRouter
+	metrics  *monitoring.Metrics
+	port     int
+	maxConns int
+	sem      chan struct{}
 }
 
 func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port int) *Listener {
@@ -25,6 +27,14 @@ func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port in
 		metrics: metrics,
 		port:    port,
 	}
+}
+
+func (l *Listener) WithMaxConns(n int) *Listener {
+	l.maxConns = n
+	if n > 0 {
+		l.sem = make(chan struct{}, n)
+	}
+	return l
 }
 
 func (l *Listener) Listen() {
@@ -43,6 +53,7 @@ func (l *Listener) Listen() {
 }
 
 func (l *Listener) serve(ln net.Listener) {
+	backoff := 10 * time.Millisecond
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
@@ -50,10 +61,25 @@ func (l *Listener) serve(ln net.Listener) {
 				return
 			}
 			log.Println("Accept error:", err)
+			time.Sleep(backoff)
+			if backoff < time.Second {
+				backoff *= 2
+			}
 			continue
 		}
+		backoff = 10 * time.Millisecond
 		enableKeepAlive(conn)
-		go l.handleConnection(conn)
+		if l.sem != nil {
+			l.sem <- struct{}{}
+		}
+		go func() {
+			defer func() {
+				if l.sem != nil {
+					<-l.sem
+				}
+			}()
+			l.handleConnection(conn)
+		}()
 	}
 }
 

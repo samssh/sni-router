@@ -43,6 +43,6 @@ func main() {
 	}
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
-	listener := server.NewListener(router, metrics, listenPort)
+	listener := server.NewListener(router, metrics, listenPort).WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
 	listener.Listen()
 }
