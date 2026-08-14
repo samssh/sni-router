@@ -49,6 +49,10 @@ func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 		}
 	}
 
+	if s.defaultRoute == nil {
+		return nil, fmt.Errorf("missing default route")
+	}
+
 	return s, nil
 }
 

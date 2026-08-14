@@ -129,14 +129,11 @@ func TestNonTLSMissingRoute(t *testing.T) {
 	}
 }
 
-func TestRoutePanicsWithoutDefault(t *testing.T) {
-	router := mustRouter(t, nil)
-	defer func() {
-		if rec := recover(); rec == nil {
-			t.Fatal("expected panic when default route is missing")
-		}
-	}()
-	_, _, _ = router.Route("missing.example.com", true)
+func TestMissingDefaultRoute(t *testing.T) {
+	_, err := NewSNIRouter(nil)
+	if err == nil {
+		t.Fatal("expected error when default route is missing")
+	}
 }
 
 func TestInvalidRegex(t *testing.T) {
