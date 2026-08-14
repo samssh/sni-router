@@ -63,30 +63,31 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	// Peek into the initial data to parse the ClientHello
 	err := ic.conn.SetReadDeadline(time.Now().Add(30 * time.Second))
 	if err != nil {
-		log.Println("error setting read deadline", err)
+		log.Printf("error setting read deadline id=%d remote=%s: %s", ic.id, conn.RemoteAddr(), err)
 	}
 	sniValue, isTls, err := sni.ExtractSNI(ic.bufReader, l.metrics)
 	if err != nil {
-		log.Printf("SNI extraction failed. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
+		log.Printf("SNI extraction failed id=%d remote=%s error=%s", ic.id, conn.RemoteAddr(), err)
 		return
 	}
 	if err := ic.conn.SetDeadline(time.Time{}); err != nil {
-		log.Println("error clearing read deadline", err)
+		log.Printf("error clearing read deadline id=%d remote=%s: %s", ic.id, conn.RemoteAddr(), err)
 	}
 	useProxy, dstAddr, dialTimeout, err := l.router.Route(sniValue, isTls)
 	if err != nil {
-		log.Printf("Route error. remote: %s error: %s \n", conn.RemoteAddr().String(), err.Error())
+		log.Printf("Route error id=%d remote=%s sni=%s error=%s", ic.id, conn.RemoteAddr(), sniValue, err)
 		return
 	}
 	oc, err := dialTcp(dstAddr, sniValue, dialTimeout, l.metrics)
 	if err != nil {
-		log.Println("Dial Error:" + err.Error())
+		log.Printf("Dial Error id=%d remote=%s sni=%s dest=%s: %s", ic.id, conn.RemoteAddr(), sniValue, dstAddr, err)
 		return
 	}
+	oc.id = ic.id
 	defer oc.Close()
 	if useProxy {
 		if err := writeProxyHeader(ic, oc); err != nil {
-			log.Println("write proxy header failed:" + err.Error())
+			log.Printf("write proxy header failed id=%d remote=%s sni=%s dest=%s: %s", ic.id, conn.RemoteAddr(), sniValue, dstAddr, err)
 			return
 		}
 	}
@@ -115,6 +116,7 @@ func enableKeepAlive(conn net.Conn) {
 }
 
 func writeProxyHeader(ic *InboundConnection, oc *OutboundConnection) error {
+	// Dest is the listen address, not a DNAT VIP.
 	headers := proxyproto.HeaderProxyFromAddrs(2, ic.conn.RemoteAddr(), ic.conn.LocalAddr())
 	_, err := headers.WriteTo(oc)
 	return err

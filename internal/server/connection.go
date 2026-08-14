@@ -7,8 +7,11 @@ import (
 	"net"
 	"sni-router/internal/monitoring"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+var nextConnID atomic.Uint64
 
 type Connection interface {
 	io.Reader
@@ -17,6 +20,7 @@ type Connection interface {
 }
 
 type connection struct {
+	id        uint64
 	conn      net.Conn
 	bufReader *bufio.Reader
 	once      sync.Once
@@ -53,7 +57,7 @@ func (ic *InboundConnection) Close() {
 		err := ic.conn.Close()
 		ic.metrics.ObserveCloseInboundConnection(time.Since(ic.openTime))
 		if err != nil {
-			log.Println("error in close connection", err)
+			log.Printf("error in close connection id=%d: %s", ic.id, err)
 		}
 	})
 }
@@ -62,6 +66,7 @@ func newInboundConnection(conn net.Conn, metrics *monitoring.Metrics) *InboundCo
 	metrics.ObserveOpenInboundConnection()
 	return &InboundConnection{
 		connection: connection{
+			id:        nextConnID.Add(1),
 			conn:      conn,
 			bufReader: bufio.NewReader(conn),
 			metrics:   metrics,
@@ -95,7 +100,7 @@ func (oc *OutboundConnection) Close() {
 		err := oc.conn.Close()
 		oc.metrics.ObserveCloseOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, time.Since(oc.openTime))
 		if err != nil {
-			log.Println("error in close connection", err)
+			log.Printf("error in close connection id=%d sni=%s: %s", oc.id, oc.sniValue, err)
 		}
 	})
 }

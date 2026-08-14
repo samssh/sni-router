@@ -9,11 +9,11 @@ import (
 	"sync"
 )
 
-func copyStreams(wg *sync.WaitGroup, src Connection, dst Connection) {
+func copyStreams(wg *sync.WaitGroup, src Connection, dst Connection, id uint64) {
 	defer wg.Done()
 	_, err := io.Copy(dst, src)
 	if err != nil && !isExpectedCopyError(err) {
-		log.Println("error in copy", err)
+		log.Printf("error in copy id=%d: %s", id, err)
 	}
 	closeWrite(dst)
 }
@@ -39,7 +39,7 @@ func CopyStreamsBidirectional(ic *InboundConnection, oc *OutboundConnection) {
 	var wg sync.WaitGroup
 	wg.Add(2)
 	// Concurrent copy of data between connections
-	go copyStreams(&wg, ic, oc)
-	go copyStreams(&wg, oc, ic)
+	go copyStreams(&wg, ic, oc, ic.id)
+	go copyStreams(&wg, oc, ic, ic.id)
 	wg.Wait()
 }
