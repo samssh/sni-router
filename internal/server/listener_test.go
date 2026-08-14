@@ -211,6 +211,68 @@ func TestListenerMaxConnections(t *testing.T) {
 	}
 }
 
+func TestListenerSetRouter(t *testing.T) {
+	prom := startTLSBackend(t, "prom")
+	other := startTLSBackend(t, "other")
+	fallback := startTLSBackend(t, "default")
+	promHost, promPort := backendRoute(t, prom)
+	otherHost, otherPort := backendRoute(t, other)
+	defHost, defPort := backendRoute(t, fallback)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	router, err := routing.NewSNIRouter([]routing.Route{
+		{Domain: "prom.example.com", Host: promHost, Port: promPort},
+		{Domain: "default", Host: defHost, Port: defPort},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := NewListener(router, newTestMetrics(), 0)
+	go listener.serve(ln)
+	routerAddr := ln.Addr().String()
+
+	client := routerHTTPClient(routerAddr, "prom.example.com")
+	resp, err := client.Get("https://prom.example.com/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "prom" {
+		t.Fatalf("body = %q, want prom", body)
+	}
+
+	next, err := routing.NewSNIRouter([]routing.Route{
+		{Domain: "prom.example.com", Host: otherHost, Port: otherPort},
+		{Domain: "default", Host: defHost, Port: defPort},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener.SetRouter(next)
+
+	client = routerHTTPClient(routerAddr, "prom.example.com")
+	resp, err = client.Get("https://prom.example.com/health")
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, err = io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(body) != "other" {
+		t.Fatalf("body after reload = %q, want other", body)
+	}
+}
+
 func TestListenerShutdown(t *testing.T) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

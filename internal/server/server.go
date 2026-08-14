@@ -11,13 +11,14 @@ import (
 	"sni-router/internal/sni"
 	"strconv"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pires/go-proxyproto"
 )
 
 type Listener struct {
-	router   *routing.SNIRouter
+	router   atomic.Pointer[routing.SNIRouter]
 	metrics  *monitoring.Metrics
 	port     int
 	addr     string
@@ -28,11 +29,16 @@ type Listener struct {
 }
 
 func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port int) *Listener {
-	return &Listener{
-		router:  router,
+	l := &Listener{
 		metrics: metrics,
 		port:    port,
 	}
+	l.router.Store(router)
+	return l
+}
+
+func (l *Listener) SetRouter(router *routing.SNIRouter) {
+	l.router.Store(router)
 }
 
 func (l *Listener) WithListenAddr(addr string) *Listener {
@@ -138,7 +144,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	if err := ic.conn.SetDeadline(time.Time{}); err != nil {
 		log.Printf("error clearing read deadline id=%d remote=%s: %s", ic.id, conn.RemoteAddr(), err)
 	}
-	useProxy, dstAddr, dialTimeout, err := l.router.Route(sniValue, isTls)
+	useProxy, dstAddr, dialTimeout, err := l.router.Load().Route(sniValue, isTls)
 	if err != nil {
 		l.metrics.ObserveConnectionError(monitoring.ErrorNoRoute)
 		log.Printf("Route error id=%d remote=%s sni=%s error=%s", ic.id, conn.RemoteAddr(), sniValue, err)

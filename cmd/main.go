@@ -34,10 +34,24 @@ func getStringEnv(env string, defaultValue string) string {
 	return stringValue
 }
 
+func reloadRouter(path string, listener *server.Listener) error {
+	routes, err := config.LoadRoutingConfig(path)
+	if err != nil {
+		return err
+	}
+	router, err := routing.NewSNIRouter(routes)
+	if err != nil {
+		return err
+	}
+	listener.SetRouter(router)
+	return nil
+}
+
 func main() {
 	listenPort := getIntEnv("LISTEN_PORT", 443)
 	metricsPort := getIntEnv("METRICS_PORT", 9113)
-	routes, err := config.LoadRoutingConfig(getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml"))
+	configPath := getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml")
+	routes, err := config.LoadRoutingConfig(configPath)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -51,6 +65,18 @@ func main() {
 		WithListenAddr(getStringEnv("LISTEN_ADDR", "")).
 		WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
 	go listener.Listen()
+
+	hup := make(chan os.Signal, 1)
+	signal.Notify(hup, syscall.SIGHUP)
+	go func() {
+		for range hup {
+			if err := reloadRouter(configPath, listener); err != nil {
+				log.Printf("reload failed: %s", err)
+				continue
+			}
+			log.Println("reloaded routing config")
+		}
+	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
