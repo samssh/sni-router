@@ -9,6 +9,7 @@ import (
 	"sni-router/internal/monitoring"
 	"sni-router/internal/routing"
 	"sni-router/internal/sni"
+	"strconv"
 	"sync"
 	"time"
 
@@ -19,6 +20,7 @@ type Listener struct {
 	router   *routing.SNIRouter
 	metrics  *monitoring.Metrics
 	port     int
+	addr     string
 	maxConns int
 	sem      chan struct{}
 	ln       net.Listener
@@ -33,6 +35,18 @@ func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port in
 	}
 }
 
+func (l *Listener) WithListenAddr(addr string) *Listener {
+	l.addr = addr
+	return l
+}
+
+func (l *Listener) listenAddr() string {
+	if l.addr == "" {
+		return fmt.Sprintf(":%d", l.port)
+	}
+	return net.JoinHostPort(l.addr, strconv.Itoa(l.port))
+}
+
 func (l *Listener) WithMaxConns(n int) *Listener {
 	l.maxConns = n
 	if n > 0 {
@@ -42,7 +56,7 @@ func (l *Listener) WithMaxConns(n int) *Listener {
 }
 
 func (l *Listener) Listen() {
-	ln, err := net.Listen("tcp", fmt.Sprintf(":%d", l.port))
+	ln, err := net.Listen("tcp", l.listenAddr())
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -53,7 +67,7 @@ func (l *Listener) Listen() {
 			log.Println(err)
 		}
 	}()
-	log.Printf("Listening on :%d", l.port)
+	log.Printf("Listening on %s", l.listenAddr())
 	l.serve(ln)
 }
 

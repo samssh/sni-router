@@ -47,7 +47,9 @@ func main() {
 	}
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
-	listener := server.NewListener(router, metrics, listenPort).WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
+	listener := server.NewListener(router, metrics, listenPort).
+		WithListenAddr(getStringEnv("LISTEN_ADDR", "")).
+		WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
 	go listener.Listen()
 
 	sig := make(chan os.Signal, 1)
