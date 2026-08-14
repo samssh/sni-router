@@ -2,6 +2,7 @@ package routing
 
 import (
 	"fmt"
+	"log"
 	"net"
 	"regexp"
 	"strconv"
@@ -33,6 +34,12 @@ func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 	}
 
 	for _, route := range allRoutes {
+		if route.Domain == "" {
+			return nil, fmt.Errorf("empty domain")
+		}
+		if route.Port <= 0 {
+			return nil, fmt.Errorf("invalid port for domain %q", route.Domain)
+		}
 		if route.Host == "" {
 			route.Host = "127.0.0.1"
 		}
@@ -48,10 +55,19 @@ func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 		}
 		switch route.Domain {
 		case "non-tls":
+			if s.nonTlsRoute != nil {
+				return nil, fmt.Errorf("duplicate non-tls route")
+			}
 			s.nonTlsRoute = &route
 		case "default":
+			if s.defaultRoute != nil {
+				return nil, fmt.Errorf("duplicate default route")
+			}
 			s.defaultRoute = &route
 		default:
+			if route.ReverseMatch && !route.UseRegex {
+				log.Printf("warning: reverseMatch on %q matches every other name", route.Domain)
+			}
 			s.Routes = append(s.Routes, route)
 		}
 	}

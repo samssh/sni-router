@@ -167,6 +167,30 @@ func TestCompiledRegexIsReused(t *testing.T) {
 	}
 }
 
+func TestInvalidRouteConfig(t *testing.T) {
+	tests := []struct {
+		name   string
+		routes []Route
+		want   string
+	}{
+		{name: "empty domain", routes: []Route{{Domain: "", Port: 443}, {Domain: "default", Port: 443}}, want: "empty domain"},
+		{name: "port zero", routes: []Route{{Domain: "app.example.com", Port: 0}, {Domain: "default", Port: 443}}, want: "invalid port"},
+		{name: "duplicate default", routes: []Route{{Domain: "default", Port: 443}, {Domain: "default", Port: 8443}}, want: "duplicate default"},
+		{name: "duplicate non-tls", routes: []Route{{Domain: "non-tls", Port: 80}, {Domain: "non-tls", Port: 8080}, {Domain: "default", Port: 443}}, want: "duplicate non-tls"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := NewSNIRouter(tt.routes)
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestDialTimeoutDefaultAndOverride(t *testing.T) {
 	router := mustRouter(t, []Route{
 		{Domain: "slow.example.com", Host: "10.0.0.1", Port: 443, DialTimeout: 3},
