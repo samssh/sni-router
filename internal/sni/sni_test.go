@@ -92,8 +92,7 @@ func TestExtractSNI(t *testing.T) {
 		{
 			name:    "handshake is not client hello",
 			input:   notClientHello,
-			wantSNI: "",
-			wantTLS: false,
+			wantErr: true,
 		},
 		{
 			name:    "truncated record header",
@@ -109,13 +108,12 @@ func TestExtractSNI(t *testing.T) {
 			name:    "client hello without sni extension",
 			input:   noSNI,
 			wantSNI: "",
-			wantTLS: false,
+			wantTLS: true,
 		},
 		{
-			name:    "malformed lengths recover as non-tls",
+			name:    "malformed lengths return error",
 			input:   malformedPanic,
-			wantSNI: "",
-			wantTLS: false,
+			wantErr: true,
 		},
 	}
 

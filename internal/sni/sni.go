@@ -12,10 +12,9 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 	startTime := time.Now()
 	defer func() {
 		if rec := recover(); rec != nil {
-			// fallback to non-tls
 			sniValue = ""
 			isTls = false
-			err = nil
+			err = fmt.Errorf("malformed client hello")
 		}
 
 		if err != nil {
@@ -46,7 +45,7 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 	pos := 5
 	// Handshake type must be ClientHello (1)
 	if data[pos] != 0x01 {
-		return "", false, nil
+		return "", false, fmt.Errorf("tls record is not a client hello")
 	}
 
 	pos += 4 // Skip handshake type (1 byte) + length (3 bytes)
@@ -64,14 +63,14 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 
 	// Extensions length
 	if pos+2 > len(data) {
-		return "", false, nil
+		return "", true, nil
 	}
 	extensionsLen := int(binary.BigEndian.Uint16(data[pos : pos+2]))
 	pos += 2
 
 	extensionsEnd := pos + extensionsLen
 	if extensionsEnd > len(data) {
-		return "", false, nil
+		return "", false, fmt.Errorf("malformed client hello extensions")
 	}
 
 	for pos+4 <= extensionsEnd {
@@ -82,11 +81,11 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 		if extType == 0x00 { // SNI extension
 			sniData := data[pos : pos+extLen]
 			if len(sniData) < 5 {
-				return "", false, nil
+				return "", false, fmt.Errorf("malformed sni extension")
 			}
 			sniLen := int(binary.BigEndian.Uint16(sniData[3:5]))
 			if 5+sniLen > len(sniData) {
-				return "", false, nil
+				return "", false, fmt.Errorf("malformed sni extension")
 			}
 			serverName := string(sniData[5 : 5+sniLen])
 			return serverName, true, nil
@@ -95,5 +94,5 @@ func ExtractSNI(r *bufio.Reader, metrics *monitoring.Metrics) (sniValue string, 
 		pos += extLen
 	}
 
-	return "", false, nil
+	return "", true, nil
 }
