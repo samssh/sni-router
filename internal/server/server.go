@@ -93,7 +93,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 }
 
 func dialTcp(dstAddr string, sniValue string, metrics *monitoring.Metrics) (*OutboundConnection, error) {
-	dst, err := net.Dial("tcp", dstAddr)
+	dst, err := net.DialTimeout("tcp", dstAddr, 10*time.Second)
 	if err != nil {
 		return nil, err
 	}
