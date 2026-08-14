@@ -127,7 +127,7 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 		}, []string{"sni"}),
 		sniParseTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
-			Name:      "sni_parsed_time_Seconds",
+			Name:      "sni_parsed_time_seconds",
 			Help:      "Histogram of time to sni parse successfully or with error in seconds",
 			Buckets:   buckets,
 		}, []string{"sni"}),
