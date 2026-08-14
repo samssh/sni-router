@@ -38,7 +38,7 @@ func (l *Listener) Listen() {
 			log.Fatal(err)
 		}
 	}()
-	log.Println("Listening on :443")
+	log.Printf("Listening on :%d", l.port)
 	l.serve(ln)
 }
 
