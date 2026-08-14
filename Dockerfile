@@ -1,14 +1,9 @@
-FROM golang:1.24.9-alpine3.22 AS builder
+FROM golang:1.26.6-alpine3.22 AS builder
 WORKDIR /app
-
-RUN apk --no-cache --update add \
-  build-base \
-  gcc
 
 COPY . .
 
-ENV CGO_ENABLED=1
-ENV CGO_CFLAGS="-D_LARGEFILE64_SOURCE"
+ENV CGO_ENABLED=0
 RUN go build -ldflags "-w -s" -o build/sni-router cmd/main.go
 
 FROM alpine:3.22.2
