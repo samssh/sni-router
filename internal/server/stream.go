@@ -1,8 +1,11 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"log"
+	"net"
+	"strings"
 	"sync"
 )
 
@@ -11,10 +14,16 @@ func copyStreams(wg *sync.WaitGroup, ic Connection, oc Connection) {
 	defer oc.Close()
 	defer wg.Done()
 	_, err := io.Copy(oc, ic)
-	if err != nil {
+	if err != nil && !isExpectedCopyError(err) {
 		log.Println("error in copy", err)
-		return
 	}
+}
+
+func isExpectedCopyError(err error) bool {
+	if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	return strings.Contains(err.Error(), "use of closed network connection")
 }
 
 func CopyStreamsBidirectional(ic *InboundConnection, oc *OutboundConnection) {
