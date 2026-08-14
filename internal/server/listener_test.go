@@ -211,6 +211,54 @@ func TestListenerMaxConnections(t *testing.T) {
 	}
 }
 
+func TestListenerMaxConnectionsRejects(t *testing.T) {
+	backend, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = backend.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		c, err := backend.Accept()
+		if err != nil {
+			return
+		}
+		accepted <- c
+	}()
+	host, port := backendHostPort(t, backend.Addr())
+	routerAddr := startTestRouterLimited(t, []routing.Route{
+		{Domain: "prom.example.com", Host: host, Port: port},
+		{Domain: "default", Host: host, Port: port},
+	}, 1)
+
+	held, err := net.Dial("tcp", routerAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	if _, err := held.Write(clientHelloWithSNI(t, "prom.example.com")); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case c := <-accepted:
+		defer c.Close()
+	case <-time.After(2 * time.Second):
+		t.Fatal("backend did not accept held connection")
+	}
+
+	extra, err := net.Dial("tcp", routerAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer extra.Close()
+	if err := extra.SetReadDeadline(time.Now().Add(2 * time.Second)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := extra.Read(make([]byte, 1)); err == nil {
+		t.Fatal("expected extra connection to be closed")
+	}
+}
+
 func TestListenerSetRouter(t *testing.T) {
 	prom := startTLSBackend(t, "prom")
 	other := startTLSBackend(t, "other")

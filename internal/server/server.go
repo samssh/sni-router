@@ -126,7 +126,14 @@ func (l *Listener) serve(ln net.Listener) {
 		backoff = 10 * time.Millisecond
 		enableKeepAlive(conn)
 		if l.sem != nil {
-			l.sem <- struct{}{}
+			select {
+			case l.sem <- struct{}{}:
+			default:
+				l.metrics.ObserveConnectionError(monitoring.ErrorMaxConns)
+				log.Printf("max connections reached remote=%s", conn.RemoteAddr())
+				_ = conn.Close()
+				continue
+			}
 		}
 		l.inflight.Add(1)
 		go func() {
