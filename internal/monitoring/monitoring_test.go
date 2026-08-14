@@ -87,4 +87,10 @@ func TestObserveHelpers(t *testing.T) {
 	if got := metricValue(t, reg, "sni_router_outbound_connections_open", map[string]string{"dst": "127.0.0.1:8443", "sni": "present"}); got != 0 {
 		t.Fatalf("outbound open = %v, want 0", got)
 	}
+
+	m.ObserveConnectionError(ErrorDial)
+	m.ObserveConnectionError(ErrorDial)
+	if got := metricValue(t, reg, "sni_router_connection_errors_total", map[string]string{"reason": ErrorDial}); got != 2 {
+		t.Fatalf("dial errors = %v, want 2", got)
+	}
 }

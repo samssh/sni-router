@@ -131,6 +131,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	}
 	sniValue, isTls, err := sni.ExtractSNI(ic.bufReader, l.metrics)
 	if err != nil {
+		l.metrics.ObserveConnectionError(monitoring.ErrorSNIParse)
 		log.Printf("SNI extraction failed id=%d remote=%s error=%s", ic.id, conn.RemoteAddr(), err)
 		return
 	}
@@ -139,11 +140,13 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	}
 	useProxy, dstAddr, dialTimeout, err := l.router.Route(sniValue, isTls)
 	if err != nil {
+		l.metrics.ObserveConnectionError(monitoring.ErrorNoRoute)
 		log.Printf("Route error id=%d remote=%s sni=%s error=%s", ic.id, conn.RemoteAddr(), sniValue, err)
 		return
 	}
 	oc, err := dialTcp(dstAddr, sniValue, dialTimeout, l.metrics)
 	if err != nil {
+		l.metrics.ObserveConnectionError(monitoring.ErrorDial)
 		log.Printf("Dial Error id=%d remote=%s sni=%s dest=%s: %s", ic.id, conn.RemoteAddr(), sniValue, dstAddr, err)
 		return
 	}
@@ -151,6 +154,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	defer oc.Close()
 	if useProxy {
 		if err := writeProxyHeader(ic, oc); err != nil {
+			l.metrics.ObserveConnectionError(monitoring.ErrorProxyHeader)
 			log.Printf("write proxy header failed id=%d remote=%s sni=%s dest=%s: %s", ic.id, conn.RemoteAddr(), sniValue, dstAddr, err)
 			return
 		}

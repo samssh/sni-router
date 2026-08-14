@@ -26,7 +26,16 @@ type Metrics struct {
 	outboundConnectionsBytesInTotal  *prometheus.CounterVec
 	outboundConnectionsBytesOutTotal *prometheus.CounterVec
 	outboundConnectionsTimeSeconds   *prometheus.HistogramVec
+	connectionErrorsTotal            *prometheus.CounterVec
 }
+
+const (
+	ErrorSNIParse    = "sni_parse"
+	ErrorNoRoute     = "no_route"
+	ErrorDial        = "dial"
+	ErrorMaxConns    = "max_conns"
+	ErrorProxyHeader = "proxy_header"
+)
 
 func (m *Metrics) ObserveOpenInboundConnection() {
 	m.inboundConnectionsTotal.Inc()
@@ -81,6 +90,10 @@ func (m *Metrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead in
 
 func (m *Metrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
 	m.outboundConnectionsBytesOutTotal.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteWrite))
+}
+
+func (m *Metrics) ObserveConnectionError(reason string) {
+	m.connectionErrorsTotal.WithLabelValues(reason).Inc()
 }
 
 func NewMetrics() *Metrics {
@@ -159,6 +172,11 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Help:      "Histogram of time to outbound connections is open in seconds",
 			Buckets:   connBuckets,
 		}, []string{"dst", "sni"}),
+		connectionErrorsTotal: factory.NewCounterVec(prometheus.CounterOpts{
+			Namespace: namespace,
+			Name:      "connection_errors_total",
+			Help:      "Total number of failed connections by reason",
+		}, []string{"reason"}),
 	}
 }
 
