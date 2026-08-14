@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"log"
@@ -8,6 +9,7 @@ import (
 	"sni-router/internal/monitoring"
 	"sni-router/internal/routing"
 	"sni-router/internal/sni"
+	"sync"
 	"time"
 
 	"github.com/pires/go-proxyproto"
@@ -19,6 +21,8 @@ type Listener struct {
 	port     int
 	maxConns int
 	sem      chan struct{}
+	ln       net.Listener
+	inflight sync.WaitGroup
 }
 
 func NewListener(router *routing.SNIRouter, metrics *monitoring.Metrics, port int) *Listener {
@@ -42,14 +46,32 @@ func (l *Listener) Listen() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	l.ln = ln
 	defer func() {
 		err := ln.Close()
-		if err != nil {
-			log.Fatal(err)
+		if err != nil && !errors.Is(err, net.ErrClosed) {
+			log.Println(err)
 		}
 	}()
 	log.Printf("Listening on :%d", l.port)
 	l.serve(ln)
+}
+
+func (l *Listener) Shutdown(ctx context.Context) error {
+	if l.ln != nil {
+		_ = l.ln.Close()
+	}
+	done := make(chan struct{})
+	go func() {
+		l.inflight.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func (l *Listener) serve(ln net.Listener) {
@@ -72,7 +94,9 @@ func (l *Listener) serve(ln net.Listener) {
 		if l.sem != nil {
 			l.sem <- struct{}{}
 		}
+		l.inflight.Add(1)
 		go func() {
+			defer l.inflight.Done()
 			defer func() {
 				if l.sem != nil {
 					<-l.sem

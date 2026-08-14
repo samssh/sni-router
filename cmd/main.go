@@ -1,13 +1,17 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"os/signal"
 	"sni-router/internal/config"
 	"sni-router/internal/monitoring"
 	"sni-router/internal/routing"
 	"sni-router/internal/server"
 	"strconv"
+	"syscall"
+	"time"
 )
 
 func getIntEnv(env string, defaultValue int) int {
@@ -44,5 +48,16 @@ func main() {
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
 	listener := server.NewListener(router, metrics, listenPort).WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0))
-	listener.Listen()
+	go listener.Listen()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	<-sig
+
+	timeout := time.Duration(getIntEnv("SHUTDOWN_TIMEOUT_SECONDS", 30)) * time.Second
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := listener.Shutdown(ctx); err != nil {
+		log.Println("shutdown:", err)
+	}
 }

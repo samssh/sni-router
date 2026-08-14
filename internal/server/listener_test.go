@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -207,5 +208,36 @@ func TestListenerMaxConnections(t *testing.T) {
 	}
 	if string(body) != "ok" {
 		t.Fatalf("second request body = %q, want ok", body)
+	}
+}
+
+func TestListenerShutdown(t *testing.T) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	router, err := routing.NewSNIRouter([]routing.Route{
+		{Domain: "default", Host: "127.0.0.1", Port: 9},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	listener := NewListener(router, newTestMetrics(), 0)
+	listener.ln = ln
+	done := make(chan struct{})
+	go func() {
+		listener.serve(ln)
+		close(done)
+	}()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := listener.Shutdown(ctx); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve did not exit after shutdown")
 	}
 }
