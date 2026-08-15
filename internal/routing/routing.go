@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-const DefaultDialTimeoutSeconds = 10
+const DefaultDialTimeoutSeconds = 2
 
 type Route struct {
 	Domain       string `yaml:"domain"`
