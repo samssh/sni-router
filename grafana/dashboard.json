@@ -961,6 +961,10 @@
               "overrides": []
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [],
                 "displayMode": "table",
@@ -974,7 +978,7 @@
               }
             }
           },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
         }
       }
     },
@@ -1077,6 +1081,10 @@
               "overrides": []
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [],
                 "displayMode": "table",
@@ -1090,7 +1098,7 @@
               }
             }
           },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
         }
       }
     },
@@ -1115,7 +1123,7 @@
                       "editorMode": "code",
                       "expr": "rate(sni_router_outbound_connections_bytes_in_total{sni=~\"$sni\"}[$__rate_interval]) > 0",
                       "instant": false,
-                      "legendFormat": "byte in {{sni}}",
+                      "legendFormat": "byte in {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1137,7 +1145,7 @@
                       "editorMode": "code",
                       "expr": "-rate(sni_router_outbound_connections_bytes_out_total{sni=~\"$sni\"}[$__rate_interval]) < 0",
                       "instant": false,
-                      "legendFormat": "byte out {{sni}}",
+                      "legendFormat": "byte out {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1261,6 +1269,10 @@
               ]
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [
                   "mean",
@@ -1277,7 +1289,7 @@
               }
             }
           },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
         }
       }
     },
@@ -1302,7 +1314,7 @@
                       "editorMode": "code",
                       "expr": "histogram_quantile($quantile, sum(rate(sni_router_outbound_connections_time_seconds_bucket{sni=~\"$sni\"}[$__rate_interval])) by (le,sni,dst)) > 0",
                       "instant": false,
-                      "legendFormat": "open time {{sni}}",
+                      "legendFormat": "open time {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1380,6 +1392,10 @@
               "overrides": []
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [],
                 "displayMode": "list",
@@ -1393,7 +1409,132 @@
               }
             }
           },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
+        }
+      }
+    },
+    "panel-20": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "rate(sni_router_connection_errors_total[$__rate_interval]) > 0",
+                      "instant": false,
+                      "legendFormat": "{{reason}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "sni_parse, no_route, dial, max_conns, proxy_header",
+        "id": 20,
+        "links": [],
+        "title": "Connection errors",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "linear",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "green",
+                      "value": 0
+                    },
+                    {
+                      "color": "red",
+                      "value": 80
+                    }
+                  ]
+                },
+                "unit": "ops"
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "max"
+                ],
+                "displayMode": "table",
+                "placement": "bottom",
+                "showLegend": true,
+                "sortBy": "Max",
+                "sortDesc": true
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.0.1+security-01"
         }
       }
     },
@@ -1924,6 +2065,10 @@
               "overrides": []
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [
                   "lastNotNull",
@@ -1942,7 +2087,7 @@
               }
             }
           },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
         }
       }
     },
@@ -2045,6 +2190,10 @@
               "overrides": []
             },
             "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
               "legend": {
                 "calcs": [
                   "lastNotNull",
@@ -2063,128 +2212,7 @@
               }
             }
           },
-          "version": "12.2.0"
-        }
-      }
-    },
-    "panel-20": {
-      "kind": "Panel",
-      "spec": {
-        "data": {
-          "kind": "QueryGroup",
-          "spec": {
-            "queries": [
-              {
-                "kind": "PanelQuery",
-                "spec": {
-                  "hidden": false,
-                  "query": {
-                    "datasource": {
-                      "name": "${DS}"
-                    },
-                    "group": "prometheus",
-                    "kind": "DataQuery",
-                    "spec": {
-                      "editorMode": "code",
-                      "expr": "rate(sni_router_connection_errors_total[$__rate_interval]) > 0",
-                      "instant": false,
-                      "legendFormat": "{{reason}}",
-                      "range": true
-                    },
-                    "version": "v0"
-                  },
-                  "refId": "A"
-                }
-              }
-            ],
-            "queryOptions": {},
-            "transformations": []
-          }
-        },
-        "description": "sni_parse, no_route, dial, max_conns, proxy_header",
-        "id": 20,
-        "links": [],
-        "title": "Connection errors",
-        "vizConfig": {
-          "group": "timeseries",
-          "kind": "VizConfig",
-          "spec": {
-            "fieldConfig": {
-              "defaults": {
-                "color": {
-                  "mode": "palette-classic"
-                },
-                "custom": {
-                  "axisBorderShow": false,
-                  "axisCenteredZero": false,
-                  "axisColorMode": "text",
-                  "axisLabel": "",
-                  "axisPlacement": "auto",
-                  "barAlignment": 0,
-                  "barWidthFactor": 0.6,
-                  "drawStyle": "line",
-                  "fillOpacity": 0,
-                  "gradientMode": "none",
-                  "hideFrom": {
-                    "legend": false,
-                    "tooltip": false,
-                    "viz": false
-                  },
-                  "insertNulls": false,
-                  "lineInterpolation": "linear",
-                  "lineWidth": 1,
-                  "pointSize": 5,
-                  "scaleDistribution": {
-                    "type": "linear"
-                  },
-                  "showPoints": "auto",
-                  "showValues": false,
-                  "spanNulls": false,
-                  "stacking": {
-                    "group": "A",
-                    "mode": "none"
-                  },
-                  "thresholdsStyle": {
-                    "mode": "off"
-                  }
-                },
-                "thresholds": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": 0
-                    },
-                    {
-                      "color": "red",
-                      "value": 80
-                    }
-                  ]
-                },
-                "unit": "ops"
-              },
-              "overrides": []
-            },
-            "options": {
-              "legend": {
-                "calcs": [
-                  "lastNotNull",
-                  "max"
-                ],
-                "displayMode": "table",
-                "placement": "bottom",
-                "showLegend": true,
-                "sortBy": "Max",
-                "sortDesc": true
-              },
-              "tooltip": {
-                "hideZeros": false,
-                "mode": "single",
-                "sort": "none"
-              }
-            }
-          },
-          "version": "12.2.0"
+          "version": "13.0.1+security-01"
         }
       }
     }
@@ -2493,7 +2521,7 @@
       "1d"
     ],
     "fiscalYearStartMonth": 0,
-    "from": "now-6h",
+    "from": "now-1h",
     "hideTimepicker": false,
     "timezone": "browser",
     "to": "now"
@@ -2505,8 +2533,8 @@
       "spec": {
         "allowCustomValue": true,
         "current": {
-          "text": "fi-derak",
-          "value": "eeowsvgda2wowc"
+          "text": "ir-pars",
+          "value": "ddq58q850bqpsf"
         },
         "hide": "dontHide",
         "includeAll": false,
@@ -2558,9 +2586,7 @@
         "allValue": "error|empty|present",
         "allowCustomValue": true,
         "current": {
-          "text": [
-            "All"
-          ],
+          "text": "All",
           "value": [
             "$__all"
           ]
