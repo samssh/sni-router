@@ -169,6 +169,6 @@ docker kill --signal=SIGHUP sni-router   # reload
 
 - Use `--network host` so listeners bind the VM's real IPs and the PROXY header carries the right destination.
 - The process runs as UID/GID 65532. The config file must be readable by that user.
-- The binary has the file capability `cap_net_bind_service`, so it can bind :443 at any time, including listeners added on reload. This needs `NET_BIND_SERVICE` in the container's bounding set. Docker's default set has it; with `--cap-drop=ALL`, add `--cap-add=NET_BIND_SERVICE`.
-- `--security-opt no-new-privileges` stops the file capability from taking effect, and the :443 binds fail (the listeners retry with `listener_up` = 0).
+- The binary has the file capability `cap_net_bind_service`, so it can bind :443 at any time, including listeners added on reload. The container must keep `NET_BIND_SERVICE`: Docker's default set has it; with `--cap-drop=ALL`, add `--cap-add=NET_BIND_SERVICE`. Without it the container does not start at all (`exec ./sni-router: operation not permitted`).
+- `--security-opt no-new-privileges` is fine: it limits file capabilities to the ones the container already has, and `NET_BIND_SERVICE` is one of them.
 - `docker kill --signal=SIGHUP` works under the non-root user: Docker delivers the signal to PID 1 either way.
