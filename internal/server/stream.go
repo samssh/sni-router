@@ -3,7 +3,7 @@ package server
 import (
 	"errors"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"strings"
 	"sync"
@@ -13,7 +13,7 @@ func copyStreams(wg *sync.WaitGroup, src Connection, dst Connection, id uint64) 
 	defer wg.Done()
 	_, err := io.Copy(dst, src)
 	if err != nil && !isExpectedCopyError(err) {
-		log.Printf("error in copy id=%d: %s", id, err)
+		slog.Warn("copy failed", "id", id, "error", err)
 	}
 	closeWrite(dst)
 }

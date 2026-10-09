@@ -2,17 +2,32 @@ package main
 
 import (
 	"context"
-	"log"
+	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"sni-router/internal/config"
 	"sni-router/internal/monitoring"
-	"sni-router/internal/routing"
 	"sni-router/internal/server"
 	"strconv"
 	"syscall"
 	"time"
 )
+
+const addrCheckInterval = 30 * time.Second
+
+// removedEnv lists v1 settings that must not be silently ignored.
+var removedEnv = []struct{ name, hint string }{
+	{"LISTEN_ADDR", "configure listeners in the routing config"},
+	{"LISTEN_PORT", "configure listeners in the routing config"},
+	{"DROP_UID", "the image runs as a non-root user with CAP_NET_BIND_SERVICE"},
+	{"DROP_GID", "the image runs as a non-root user with CAP_NET_BIND_SERVICE"},
+}
+
+func fatal(msg string, args ...any) {
+	slog.Error(msg, args...)
+	os.Exit(1)
+}
 
 func getIntEnv(env string, defaultValue int) int {
 	stringValue, exists := os.LookupEnv(env)
@@ -21,7 +36,7 @@ func getIntEnv(env string, defaultValue int) int {
 	}
 	value, err := strconv.Atoi(stringValue)
 	if err != nil {
-		log.Fatalf("could not parse %s: %s", env, err.Error())
+		fatal("could not parse env", "name", env, "error", err)
 	}
 	return value
 }
@@ -34,48 +49,64 @@ func getStringEnv(env string, defaultValue string) string {
 	return stringValue
 }
 
-func reloadRouter(path string, listener *server.Listener) error {
-	routes, err := config.LoadRoutingConfig(path)
+func setupLogging(levelName string) error {
+	var level slog.Level
+	if err := level.UnmarshalText([]byte(levelName)); err != nil {
+		return fmt.Errorf("invalid LOG_LEVEL %q: %w", levelName, err)
+	}
+	slog.SetDefault(slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level})))
+	return nil
+}
+
+func checkRemovedEnv() error {
+	for _, env := range removedEnv {
+		if _, ok := os.LookupEnv(env.name); ok {
+			return fmt.Errorf("%s was removed in v2: %s", env.name, env.hint)
+		}
+	}
+	return nil
+}
+
+func reload(path string, mgr *server.Manager) error {
+	listeners, err := config.Load(path)
 	if err != nil {
 		return err
 	}
-	router, err := routing.NewSNIRouter(routes)
-	if err != nil {
-		return err
-	}
-	listener.SetRouter(router)
+	mgr.Apply(listeners)
 	return nil
 }
 
 func main() {
-	listenPort := getIntEnv("LISTEN_PORT", 443)
+	if err := setupLogging(getStringEnv("LOG_LEVEL", "info")); err != nil {
+		fatal("invalid config", "error", err)
+	}
+	if err := checkRemovedEnv(); err != nil {
+		fatal("invalid config", "error", err)
+	}
 	metricsPort := getIntEnv("METRICS_PORT", 9113)
 	configPath := getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml")
-	routes, err := config.LoadRoutingConfig(configPath)
+	listeners, err := config.Load(configPath)
 	if err != nil {
-		log.Fatal(err)
-	}
-	router, err := routing.NewSNIRouter(routes)
-	if err != nil {
-		log.Fatal(err)
+		fatal("invalid routing config", "path", configPath, "error", err)
 	}
 	metrics := monitoring.NewMetrics()
 	go metrics.Start(metricsPort)
-	listener := server.NewListener(router, metrics, listenPort).
-		WithListenAddr(getStringEnv("LISTEN_ADDR", "")).
-		WithMaxConns(getIntEnv("MAX_CONNECTIONS", 0)).
-		WithDropPrivileges(getIntEnv("DROP_UID", 0), getIntEnv("DROP_GID", 0))
-	go listener.Listen()
+	mgr := server.NewManager(metrics, getIntEnv("MAX_CONNECTIONS", 0))
+	mgr.Apply(listeners)
+
+	ctx, stopWatch := context.WithCancel(context.Background())
+	defer stopWatch()
+	go mgr.WatchAddresses(ctx, addrCheckInterval)
 
 	hup := make(chan os.Signal, 1)
 	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
 		for range hup {
-			if err := reloadRouter(configPath, listener); err != nil {
-				log.Printf("reload failed: %s", err)
+			if err := reload(configPath, mgr); err != nil {
+				slog.Error("reload failed; keeping previous config", "error", err)
 				continue
 			}
-			log.Println("reloaded routing config")
+			slog.Info("reloaded routing config")
 		}
 	}()
 
@@ -84,9 +115,9 @@ func main() {
 	<-sig
 
 	timeout := time.Duration(getIntEnv("SHUTDOWN_TIMEOUT_SECONDS", 30)) * time.Second
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
-	if err := listener.Shutdown(ctx); err != nil {
-		log.Println("shutdown:", err)
+	if err := mgr.Shutdown(shutdownCtx); err != nil {
+		slog.Warn("shutdown", "error", err)
 	}
 }

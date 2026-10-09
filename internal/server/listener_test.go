@@ -9,12 +9,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/netip"
 	"net/url"
 	"strconv"
 	"sync"
 	"testing"
 	"time"
 
+	"sni-router/internal/config"
 	"sni-router/internal/routing"
 )
 
@@ -52,12 +54,7 @@ func startTestRouter(t *testing.T, routes []routing.Route) string {
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	router, err := routing.NewSNIRouter(routes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := NewListener(router, newTestMetrics(), 0)
-	go listener.serve(ln)
+	go newTestListener(t, routes).serve(ln)
 	return ln.Addr().String()
 }
 
@@ -69,11 +66,8 @@ func startTestRouterLimited(t *testing.T, routes []routing.Route, maxConns int) 
 	}
 	t.Cleanup(func() { _ = ln.Close() })
 
-	router, err := routing.NewSNIRouter(routes)
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := NewListener(router, newTestMetrics(), 0).WithMaxConns(maxConns)
+	m, _ := newTestManager(0)
+	listener := m.newListener(testSpec(t, netip.MustParseAddrPort("127.0.0.1:0"), maxConns, routes))
 	go listener.serve(ln)
 	return ln.Addr().String()
 }
@@ -273,14 +267,10 @@ func TestListenerSetRouter(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = ln.Close() })
-	router, err := routing.NewSNIRouter([]routing.Route{
+	listener := newTestListener(t, []routing.Route{
 		{Domain: "prom.example.com", Host: promHost, Port: promPort},
 		{Domain: "default", Host: defHost, Port: defPort},
 	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := NewListener(router, newTestMetrics(), 0)
 	go listener.serve(ln)
 	routerAddr := ln.Addr().String()
 
@@ -298,14 +288,10 @@ func TestListenerSetRouter(t *testing.T) {
 		t.Fatalf("body = %q, want prom", body)
 	}
 
-	next, err := routing.NewSNIRouter([]routing.Route{
+	listener.update(testSpec(t, listener.addr, 0, []routing.Route{
 		{Domain: "prom.example.com", Host: otherHost, Port: otherPort},
 		{Domain: "default", Host: defHost, Port: defPort},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener.SetRouter(next)
+	}))
 
 	client = routerHTTPClient(routerAddr, "prom.example.com")
 	resp, err = client.Get("https://prom.example.com/health")
@@ -322,22 +308,15 @@ func TestListenerSetRouter(t *testing.T) {
 	}
 }
 
-func TestListenerShutdownForceCloses(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	router, err := routing.NewSNIRouter([]routing.Route{
+func TestManagerShutdownForceCloses(t *testing.T) {
+	m, reg := newTestManager(0)
+	addr := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, addr, 0, []routing.Route{
 		{Domain: "default", Host: "127.0.0.1", Port: 9},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := NewListener(router, newTestMetrics(), 0)
-	listener.ln = ln
-	go listener.serve(ln)
+	})})
+	waitUp(t, reg, addr)
 
-	client, err := net.Dial("tcp", ln.Addr().String())
+	client, err := net.Dial("tcp", addr.String())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -346,7 +325,7 @@ func TestListenerShutdownForceCloses(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
 	defer cancel()
-	if err := listener.Shutdown(ctx); err == nil {
+	if err := m.Shutdown(ctx); err == nil {
 		t.Fatal("expected shutdown timeout")
 	}
 
@@ -363,33 +342,25 @@ func TestListenerShutdownForceCloses(t *testing.T) {
 	}
 }
 
-func TestListenerShutdown(t *testing.T) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		t.Fatal(err)
-	}
-	router, err := routing.NewSNIRouter([]routing.Route{
+func TestManagerShutdown(t *testing.T) {
+	m, reg := newTestManager(0)
+	addr := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, addr, 0, []routing.Route{
 		{Domain: "default", Host: "127.0.0.1", Port: 9},
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	listener := NewListener(router, newTestMetrics(), 0)
-	listener.ln = ln
-	done := make(chan struct{})
-	go func() {
-		listener.serve(ln)
-		close(done)
-	}()
+	})})
+	waitUp(t, reg, addr)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	if err := listener.Shutdown(ctx); err != nil {
+	if err := m.Shutdown(ctx); err != nil {
 		t.Fatal(err)
 	}
-	select {
-	case <-done:
-	case <-time.After(2 * time.Second):
-		t.Fatal("serve did not exit after shutdown")
-	}
+	eventually(t, "listener to stop accepting", func() bool {
+		c, err := net.Dial("tcp", addr.String())
+		if err != nil {
+			return true
+		}
+		_ = c.Close()
+		return false
+	})
 }

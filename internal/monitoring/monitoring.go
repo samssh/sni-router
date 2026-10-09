@@ -2,21 +2,22 @@ package monitoring
 
 import (
 	"fmt"
+	"log/slog"
+	"net/http"
+	"time"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"log"
-	"net/http"
-	"time"
 )
 
 type Metrics struct {
 	// inbound connections
-	inboundConnectionsTotal         prometheus.Counter
-	inboundConnectionsOpen          prometheus.Gauge
-	inboundConnectionsBytesInTotal  prometheus.Counter
-	inboundConnectionsBytesOutTotal prometheus.Counter
-	inboundConnectionsTimeSeconds   prometheus.Histogram
+	inboundConnectionsTotal         *prometheus.CounterVec
+	inboundConnectionsOpen          *prometheus.GaugeVec
+	inboundConnectionsBytesInTotal  *prometheus.CounterVec
+	inboundConnectionsBytesOutTotal *prometheus.CounterVec
+	inboundConnectionsTimeSeconds   *prometheus.HistogramVec
 	// sni parsing
 	sniParsedTotal      *prometheus.CounterVec
 	sniParseTimeSeconds *prometheus.HistogramVec
@@ -27,6 +28,9 @@ type Metrics struct {
 	outboundConnectionsBytesOutTotal *prometheus.CounterVec
 	outboundConnectionsTimeSeconds   *prometheus.HistogramVec
 	connectionErrorsTotal            *prometheus.CounterVec
+	// listeners
+	listenerUp          *prometheus.GaugeVec
+	listenerAddrPresent *prometheus.GaugeVec
 }
 
 const (
@@ -36,24 +40,6 @@ const (
 	ErrorMaxConns    = "max_conns"
 	ErrorProxyHeader = "proxy_header"
 )
-
-func (m *Metrics) ObserveOpenInboundConnection() {
-	m.inboundConnectionsTotal.Inc()
-	m.inboundConnectionsOpen.Inc()
-}
-
-func (m *Metrics) ObserveCloseInboundConnection(openTime time.Duration) {
-	m.inboundConnectionsOpen.Dec()
-	m.inboundConnectionsTimeSeconds.Observe(openTime.Seconds())
-}
-
-func (m *Metrics) ObserveReadByteInboundConnection(byteRead int) {
-	m.inboundConnectionsBytesInTotal.Add(float64(byteRead))
-}
-
-func (m *Metrics) ObserveWriteByteInboundConnection(byteWritten int) {
-	m.inboundConnectionsBytesOutTotal.Add(float64(byteWritten))
-}
 
 func sniLabel(sni string) string {
 	switch sni {
@@ -72,28 +58,120 @@ func (m *Metrics) ObserveParsedSni(sniParsed string, parseTime time.Duration) {
 	m.sniParseTimeSeconds.WithLabelValues(label).Observe(parseTime.Seconds())
 }
 
-func (m *Metrics) ObserveOpenOutboundConnection(dst, sni string) {
+// ListenerMetrics records connection metrics with the listener label already set.
+type ListenerMetrics struct {
+	inboundTotal     prometheus.Counter
+	inboundOpen      prometheus.Gauge
+	inboundBytesIn   prometheus.Counter
+	inboundBytesOut  prometheus.Counter
+	inboundTime      prometheus.Observer
+	outboundTotal    *prometheus.CounterVec
+	outboundOpen     *prometheus.GaugeVec
+	outboundBytesIn  *prometheus.CounterVec
+	outboundBytesOut *prometheus.CounterVec
+	outboundTime     prometheus.ObserverVec
+	errors           *prometheus.CounterVec
+	up               prometheus.Gauge
+	addrPresent      prometheus.Gauge
+}
+
+func (m *Metrics) Listener(name string) *ListenerMetrics {
+	labels := prometheus.Labels{"listener": name}
+	return &ListenerMetrics{
+		inboundTotal:     m.inboundConnectionsTotal.WithLabelValues(name),
+		inboundOpen:      m.inboundConnectionsOpen.WithLabelValues(name),
+		inboundBytesIn:   m.inboundConnectionsBytesInTotal.WithLabelValues(name),
+		inboundBytesOut:  m.inboundConnectionsBytesOutTotal.WithLabelValues(name),
+		inboundTime:      m.inboundConnectionsTimeSeconds.WithLabelValues(name),
+		outboundTotal:    m.outboundConnectionsTotal.MustCurryWith(labels),
+		outboundOpen:     m.outboundConnectionsOpen.MustCurryWith(labels),
+		outboundBytesIn:  m.outboundConnectionsBytesInTotal.MustCurryWith(labels),
+		outboundBytesOut: m.outboundConnectionsBytesOutTotal.MustCurryWith(labels),
+		outboundTime:     m.outboundConnectionsTimeSeconds.MustCurryWith(labels),
+		errors:           m.connectionErrorsTotal.MustCurryWith(labels),
+		up:               m.listenerUp.WithLabelValues(name),
+		addrPresent:      m.listenerAddrPresent.WithLabelValues(name),
+	}
+}
+
+// DeleteListenerState removes the listener_up and listener_addr_present series.
+func (m *Metrics) DeleteListenerState(name string) {
+	m.listenerUp.DeleteLabelValues(name)
+	m.listenerAddrPresent.DeleteLabelValues(name)
+}
+
+// ForgetListener removes every connection series of a listener. Call it only once the
+// listener is gone and its last connection has closed, or the open gauges stop adding up.
+func (m *Metrics) ForgetListener(name string) {
+	labels := prometheus.Labels{"listener": name}
+	m.inboundConnectionsTotal.DeletePartialMatch(labels)
+	m.inboundConnectionsOpen.DeletePartialMatch(labels)
+	m.inboundConnectionsBytesInTotal.DeletePartialMatch(labels)
+	m.inboundConnectionsBytesOutTotal.DeletePartialMatch(labels)
+	m.inboundConnectionsTimeSeconds.DeletePartialMatch(labels)
+	m.outboundConnectionsTotal.DeletePartialMatch(labels)
+	m.outboundConnectionsOpen.DeletePartialMatch(labels)
+	m.outboundConnectionsBytesInTotal.DeletePartialMatch(labels)
+	m.outboundConnectionsBytesOutTotal.DeletePartialMatch(labels)
+	m.outboundConnectionsTimeSeconds.DeletePartialMatch(labels)
+	m.connectionErrorsTotal.DeletePartialMatch(labels)
+}
+
+func boolGauge(b bool) float64 {
+	if b {
+		return 1
+	}
+	return 0
+}
+
+func (lm *ListenerMetrics) SetUp(up bool) {
+	lm.up.Set(boolGauge(up))
+}
+
+func (lm *ListenerMetrics) SetAddrPresent(present bool) {
+	lm.addrPresent.Set(boolGauge(present))
+}
+
+func (lm *ListenerMetrics) ObserveOpenInboundConnection() {
+	lm.inboundTotal.Inc()
+	lm.inboundOpen.Inc()
+}
+
+func (lm *ListenerMetrics) ObserveCloseInboundConnection(openTime time.Duration) {
+	lm.inboundOpen.Dec()
+	lm.inboundTime.Observe(openTime.Seconds())
+}
+
+func (lm *ListenerMetrics) ObserveReadByteInboundConnection(byteRead int) {
+	lm.inboundBytesIn.Add(float64(byteRead))
+}
+
+func (lm *ListenerMetrics) ObserveWriteByteInboundConnection(byteWritten int) {
+	lm.inboundBytesOut.Add(float64(byteWritten))
+}
+
+func (lm *ListenerMetrics) ObserveOpenOutboundConnection(dst, sni string) {
 	sni = sniLabel(sni)
-	m.outboundConnectionsTotal.WithLabelValues(dst, sni).Inc()
-	m.outboundConnectionsOpen.WithLabelValues(dst, sni).Inc()
+	lm.outboundTotal.WithLabelValues(dst, sni).Inc()
+	lm.outboundOpen.WithLabelValues(dst, sni).Inc()
 }
 
-func (m *Metrics) ObserveCloseOutboundConnection(dst, sni string, openTime time.Duration) {
+func (lm *ListenerMetrics) ObserveCloseOutboundConnection(dst, sni string, openTime time.Duration) {
 	sni = sniLabel(sni)
-	m.outboundConnectionsOpen.WithLabelValues(dst, sni).Dec()
-	m.outboundConnectionsTimeSeconds.WithLabelValues(dst, sni).Observe(openTime.Seconds())
+	lm.outboundOpen.WithLabelValues(dst, sni).Dec()
+	lm.outboundTime.WithLabelValues(dst, sni).Observe(openTime.Seconds())
 }
 
-func (m *Metrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead int) {
-	m.outboundConnectionsBytesInTotal.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteRead))
+func (lm *ListenerMetrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead int) {
+	lm.outboundBytesIn.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteRead))
 }
 
-func (m *Metrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
-	m.outboundConnectionsBytesOutTotal.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteWrite))
+func (lm *ListenerMetrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
+	lm.outboundBytesOut.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteWrite))
 }
 
-func (m *Metrics) ObserveConnectionError(reason string) {
-	m.connectionErrorsTotal.WithLabelValues(reason).Inc()
+func (lm *ListenerMetrics) ObserveConnectionError(reason string) {
+	lm.errors.WithLabelValues(reason).Inc()
 }
 
 func NewMetrics() *Metrics {
@@ -107,32 +185,32 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 	connBuckets := append(append([]float64{}, parseBuckets...), 28800, 43200, 86400, 172800, 604800)
 	return &Metrics{
 		// inbound connections
-		inboundConnectionsTotal: factory.NewCounter(prometheus.CounterOpts{
+		inboundConnectionsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_total",
 			Help:      "The total number of inbound connections",
-		}),
-		inboundConnectionsOpen: factory.NewGauge(prometheus.GaugeOpts{
+		}, []string{"listener"}),
+		inboundConnectionsOpen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_open",
 			Help:      "Number of open inbound connections",
-		}),
-		inboundConnectionsBytesInTotal: factory.NewCounter(prometheus.CounterOpts{
+		}, []string{"listener"}),
+		inboundConnectionsBytesInTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_bytes_in_total",
 			Help:      "Total number of bytes received from inbound connections",
-		}),
-		inboundConnectionsBytesOutTotal: factory.NewCounter(prometheus.CounterOpts{
+		}, []string{"listener"}),
+		inboundConnectionsBytesOutTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_bytes_out_total",
 			Help:      "Total number of bytes sent to inbound connections",
-		}),
-		inboundConnectionsTimeSeconds: factory.NewHistogram(prometheus.HistogramOpts{
+		}, []string{"listener"}),
+		inboundConnectionsTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "inbound_connections_time_seconds",
 			Help:      "Histogram of time to inbound connections is open in seconds",
 			Buckets:   connBuckets,
-		}),
+		}, []string{"listener"}),
 		// sni parsing
 		sniParsedTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
@@ -150,39 +228,50 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Namespace: namespace,
 			Name:      "outbound_connections_total",
 			Help:      "Total number of outbound connections",
-		}, []string{"dst", "sni"}),
+		}, []string{"listener", "dst", "sni"}),
 		outboundConnectionsOpen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_open",
 			Help:      "Number of open outbound connections",
-		}, []string{"dst", "sni"}),
+		}, []string{"listener", "dst", "sni"}),
 		outboundConnectionsBytesInTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_in_total",
 			Help:      "Total number of bytes received from outbound connections",
-		}, []string{"dst", "sni"}),
+		}, []string{"listener", "dst", "sni"}),
 		outboundConnectionsBytesOutTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_out_total",
 			Help:      "Total number of bytes sent to outbound connections",
-		}, []string{"dst", "sni"}),
+		}, []string{"listener", "dst", "sni"}),
 		outboundConnectionsTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_time_seconds",
 			Help:      "Histogram of time to outbound connections is open in seconds",
 			Buckets:   connBuckets,
-		}, []string{"dst", "sni"}),
+		}, []string{"listener", "dst", "sni"}),
 		connectionErrorsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "connection_errors_total",
 			Help:      "Total number of failed connections by reason",
-		}, []string{"reason"}),
+		}, []string{"listener", "reason"}),
+		// listeners
+		listenerUp: factory.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "listener_up",
+			Help:      "1 if the listener is bound and accepting, 0 while its bind is being retried",
+		}, []string{"listener"}),
+		listenerAddrPresent: factory.NewGaugeVec(prometheus.GaugeOpts{
+			Namespace: namespace,
+			Name:      "listener_addr_present",
+			Help:      "1 if the listener's IP is assigned to a local interface (always 1 for wildcards)",
+		}, []string{"listener"}),
 	}
 }
 
 func (*Metrics) Start(port int) {
-	log.Printf("Server is running on :%d\n", port)
+	slog.Info("metrics server listening", "port", port)
 	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), promhttp.Handler()); err != nil {
-		log.Printf("metrics server failed: %s", err)
+		slog.Error("metrics server failed", "error", err)
 	}
 }

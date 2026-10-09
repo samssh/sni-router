@@ -17,7 +17,7 @@ func TestCopyStreamsBidirectional(t *testing.T) {
 		_ = outbound.Close()
 	})
 
-	metrics := newTestMetrics()
+	metrics := newTestListenerMetrics()
 	ic := newInboundConnection(inbound, metrics)
 	oc := newOutboundConnection(outbound, "prom.example.com", metrics)
 
@@ -64,7 +64,7 @@ func TestCloseIdempotent(t *testing.T) {
 		_ = backend.Close()
 	})
 
-	metrics := newTestMetrics()
+	metrics := newTestListenerMetrics()
 	ic := newInboundConnection(inbound, metrics)
 	oc := newOutboundConnection(outbound, "prom.example.com", metrics)
 

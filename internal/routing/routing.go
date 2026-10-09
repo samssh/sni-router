@@ -2,7 +2,7 @@ package routing
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -29,6 +29,23 @@ type SNIRouter struct {
 }
 
 func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
+	s, err := build(allRoutes)
+	if err != nil {
+		return nil, err
+	}
+	if s.defaultRoute == nil {
+		return nil, fmt.Errorf("missing default route")
+	}
+	return s, nil
+}
+
+// ValidateRoutes runs the same checks as NewSNIRouter but does not require a default route.
+func ValidateRoutes(routes []Route) error {
+	_, err := build(routes)
+	return err
+}
+
+func build(allRoutes []Route) (*SNIRouter, error) {
 	s := &SNIRouter{
 		Routes: make([]Route, 0, len(allRoutes)),
 	}
@@ -66,14 +83,10 @@ func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 			s.defaultRoute = &route
 		default:
 			if route.ReverseMatch && !route.UseRegex {
-				log.Printf("warning: reverseMatch on %q matches every other name", route.Domain)
+				slog.Warn("reverseMatch without useRegex matches every other name", "domain", route.Domain)
 			}
 			s.Routes = append(s.Routes, route)
 		}
-	}
-
-	if s.defaultRoute == nil {
-		return nil, fmt.Errorf("missing default route")
 	}
 
 	return s, nil
