@@ -163,12 +163,12 @@ Binding ports below 1024 needs root or `CAP_NET_BIND_SERVICE`, e.g. `sudo setcap
 
 ## Docker
 
-Image `samssh1/sni-router` is published on version tags `v*.*.*`.
+Image `ghcr.io/samssh/sni-router` is published on version tags `v*.*.*`.
 
 ```bash
 docker run -d --name sni-router --network host \
   -v /etc/sni-router:/etc/sni-router:ro \
-  samssh1/sni-router:1.0.0
+  ghcr.io/samssh/sni-router:1.0.0
 docker kill --signal=SIGHUP sni-router   # reload
 ```
 
