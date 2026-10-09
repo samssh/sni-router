@@ -6,11 +6,11 @@ Typical path: client → sni-router → HAProxy (certificates) → backends.
 
 One process can listen on many `ip:port` addresses, each with its own routes on top of a shared set. This is meant for a VM with several (floating) IPs.
 
-## Upgrading from v1
+## Upgrading from v0.2
 
-v2 is a breaking release:
+v1.0.0 is a breaking release:
 
-- The route file is a map with `routes` and `listeners`. The v1 bare list is rejected with an explicit error.
+- The route file is a map with `routes` and `listeners`. The v0.2 bare list is rejected with an explicit error.
 - `LISTEN_ADDR`, `LISTEN_PORT`, `DROP_UID` and `DROP_GID` are removed. Startup fails if any of them is set.
 - The image runs as UID 65532 and binds :443 through a file capability (see [Docker](#docker)).
 - `listener` is a new label on the inbound, outbound and error metrics.
@@ -168,7 +168,7 @@ Image `samssh1/sni-router` is published on version tags `v*.*.*`.
 ```bash
 docker run -d --name sni-router --network host \
   -v /etc/sni-router:/etc/sni-router:ro \
-  samssh1/sni-router:2.0.0
+  samssh1/sni-router:1.0.0
 docker kill --signal=SIGHUP sni-router   # reload
 ```
 

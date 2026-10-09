@@ -51,7 +51,7 @@ func Parse(data []byte) ([]Listener, error) {
 		return nil, fmt.Errorf("error unmarshalling YAML: %w", err)
 	}
 	if len(root.Content) > 0 && root.Content[0].Kind == yaml.SequenceNode {
-		return nil, errors.New("routing config is a bare list of routes (v1 format); v2 expects a map with routes and listeners")
+		return nil, errors.New("routing config is a bare list of routes (v0.2 format); v1.0 expects a map with routes and listeners")
 	}
 	var f file
 	dec := yaml.NewDecoder(bytes.NewReader(data))

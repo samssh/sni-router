@@ -16,7 +16,7 @@ import (
 
 const addrCheckInterval = 30 * time.Second
 
-// removedEnv lists v1 settings that must not be silently ignored.
+// removedEnv lists v0.2 settings that must not be silently ignored.
 var removedEnv = []struct{ name, hint string }{
 	{"LISTEN_ADDR", "configure listeners in the routing config"},
 	{"LISTEN_PORT", "configure listeners in the routing config"},
@@ -86,7 +86,7 @@ func setupLogging(levelName string) error {
 func checkRemovedEnv() error {
 	for _, env := range removedEnv {
 		if _, ok := os.LookupEnv(env.name); ok {
-			return fmt.Errorf("%s was removed in v2: %s", env.name, env.hint)
+			return fmt.Errorf("%s was removed in v1.0: %s", env.name, env.hint)
 		}
 	}
 	return nil

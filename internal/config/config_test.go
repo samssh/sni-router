@@ -183,12 +183,12 @@ func TestParseErrors(t *testing.T) {
 		want    string
 	}{
 		{
-			name: "v1 list format",
+			name: "v0.2 list format",
 			content: `
 - domain: default
   port: 443
 `,
-			want: "v1 format",
+			want: "v0.2 format",
 		},
 		{
 			name:    "empty file",
