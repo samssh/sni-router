@@ -2,7 +2,7 @@ package routing
 
 import (
 	"fmt"
-	"log"
+	"log/slog"
 	"net"
 	"regexp"
 	"strconv"
@@ -20,6 +20,7 @@ type Route struct {
 	ReverseMatch bool   `yaml:"reverseMatch"`
 	DialTimeout  int    `yaml:"dialTimeout"`
 	compiled     *regexp.Regexp
+	prepared     bool
 }
 
 type SNIRouter struct {
@@ -29,29 +30,73 @@ type SNIRouter struct {
 }
 
 func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
+	s, err := build(allRoutes)
+	if err != nil {
+		return nil, err
+	}
+	if s.defaultRoute == nil {
+		return nil, fmt.Errorf("missing default route")
+	}
+	return s, nil
+}
+
+// Prepare checks routes, fills defaults, compiles regexes and rejects a duplicate default or
+// non-tls, without requiring a default route. NewSNIRouter reuses prepared routes as they are,
+// so routes shared by several routers are compiled and warned about once.
+func Prepare(routes []Route) ([]Route, error) {
+	out := make([]Route, 0, len(routes))
+	for _, route := range routes {
+		p, err := prepare(route)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, p)
+	}
+	if _, err := build(out); err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func prepare(route Route) (Route, error) {
+	if route.prepared {
+		return route, nil
+	}
+	if route.Domain == "" {
+		return Route{}, fmt.Errorf("empty domain")
+	}
+	if route.Port <= 0 {
+		return Route{}, fmt.Errorf("invalid port for domain %q", route.Domain)
+	}
+	if route.Host == "" {
+		route.Host = "127.0.0.1"
+	}
+	if route.DialTimeout <= 0 {
+		route.DialTimeout = DefaultDialTimeoutSeconds
+	}
+	if route.UseRegex {
+		re, err := regexp.Compile(route.Domain)
+		if err != nil {
+			return Route{}, fmt.Errorf("invalid regex for domain %q: %w", route.Domain, err)
+		}
+		route.compiled = re
+	}
+	if route.ReverseMatch && !route.UseRegex && route.Domain != "default" && route.Domain != "non-tls" {
+		slog.Warn("reverseMatch without useRegex matches every other name", "domain", route.Domain)
+	}
+	route.prepared = true
+	return route, nil
+}
+
+func build(allRoutes []Route) (*SNIRouter, error) {
 	s := &SNIRouter{
 		Routes: make([]Route, 0, len(allRoutes)),
 	}
 
 	for _, route := range allRoutes {
-		if route.Domain == "" {
-			return nil, fmt.Errorf("empty domain")
-		}
-		if route.Port <= 0 {
-			return nil, fmt.Errorf("invalid port for domain %q", route.Domain)
-		}
-		if route.Host == "" {
-			route.Host = "127.0.0.1"
-		}
-		if route.DialTimeout <= 0 {
-			route.DialTimeout = DefaultDialTimeoutSeconds
-		}
-		if route.UseRegex {
-			re, err := regexp.Compile(route.Domain)
-			if err != nil {
-				return nil, fmt.Errorf("invalid regex for domain %q: %w", route.Domain, err)
-			}
-			route.compiled = re
+		route, err := prepare(route)
+		if err != nil {
+			return nil, err
 		}
 		switch route.Domain {
 		case "non-tls":
@@ -65,15 +110,8 @@ func NewSNIRouter(allRoutes []Route) (*SNIRouter, error) {
 			}
 			s.defaultRoute = &route
 		default:
-			if route.ReverseMatch && !route.UseRegex {
-				log.Printf("warning: reverseMatch on %q matches every other name", route.Domain)
-			}
 			s.Routes = append(s.Routes, route)
 		}
-	}
-
-	if s.defaultRoute == nil {
-		return nil, fmt.Errorf("missing default route")
 	}
 
 	return s, nil

@@ -12,6 +12,12 @@ WORKDIR /app
 
 COPY --from=builder /app/build/sni-router /app/
 
-RUN chmod +x /app/sni-router
+# Lets the non-root user bind :443 at any time, including listeners added on SIGHUP.
+RUN apk add --no-cache libcap \
+    && chmod +x /app/sni-router \
+    && setcap cap_net_bind_service=+ep /app/sni-router \
+    && apk del libcap
+
+USER 65532:65532
 
 CMD [ "./sni-router" ]

@@ -42,9 +42,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sni_router_inbound_connections_open",
+                      "expr": "sum by (listener) (sni_router_inbound_connections_open{listener=~\"$listener\"})",
                       "instant": false,
-                      "legendFormat": "open connections",
+                      "legendFormat": "{{listener}}",
                       "range": true
                     },
                     "version": "v0"
@@ -882,9 +882,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "sni_router_outbound_connections_open{sni=~\"$sni\"} > 0",
+                      "expr": "sni_router_outbound_connections_open{sni=~\"$sni\",listener=~\"$listener\"} > 0",
                       "instant": false,
-                      "legendFormat": "{{sni}} {{dst}}",
+                      "legendFormat": "{{listener}} {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1001,9 +1001,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "irate(sni_router_outbound_connections_total{sni=~\"$sni\"}[$__rate_interval]) > 0",
+                      "expr": "irate(sni_router_outbound_connections_total{sni=~\"$sni\",listener=~\"$listener\"}[$__rate_interval]) > 0",
                       "instant": false,
-                      "legendFormat": "{{sni}} {{dst}}",
+                      "legendFormat": "{{listener}} {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1121,9 +1121,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "rate(sni_router_outbound_connections_bytes_in_total{sni=~\"$sni\"}[$__rate_interval]) > 0",
+                      "expr": "rate(sni_router_outbound_connections_bytes_in_total{sni=~\"$sni\",listener=~\"$listener\"}[$__rate_interval]) > 0",
                       "instant": false,
-                      "legendFormat": "byte in {{sni}} {{dst}}",
+                      "legendFormat": "byte in {{listener}} {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1143,9 +1143,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "-rate(sni_router_outbound_connections_bytes_out_total{sni=~\"$sni\"}[$__rate_interval]) < 0",
+                      "expr": "-rate(sni_router_outbound_connections_bytes_out_total{sni=~\"$sni\",listener=~\"$listener\"}[$__rate_interval]) < 0",
                       "instant": false,
-                      "legendFormat": "byte out {{sni}} {{dst}}",
+                      "legendFormat": "byte out {{listener}} {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1312,9 +1312,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile($quantile, sum(rate(sni_router_outbound_connections_time_seconds_bucket{sni=~\"$sni\"}[$__rate_interval])) by (le,sni,dst)) > 0",
+                      "expr": "histogram_quantile($quantile, sum(rate(sni_router_outbound_connections_time_seconds_bucket{sni=~\"$sni\",listener=~\"$listener\"}[$__rate_interval])) by (le,listener,sni,dst)) > 0",
                       "instant": false,
-                      "legendFormat": "open time {{sni}} {{dst}}",
+                      "legendFormat": "open time {{listener}} {{sni}} {{dst}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1432,9 +1432,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "rate(sni_router_connection_errors_total[$__rate_interval]) > 0",
+                      "expr": "rate(sni_router_connection_errors_total{listener=~\"$listener\"}[$__rate_interval]) > 0",
                       "instant": false,
-                      "legendFormat": "{{reason}}",
+                      "legendFormat": "{{listener}} {{reason}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1557,9 +1557,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "irate(sni_router_inbound_connections_total[$__rate_interval])",
+                      "expr": "sum by (listener) (irate(sni_router_inbound_connections_total{listener=~\"$listener\"}[$__rate_interval]))",
                       "instant": false,
-                      "legendFormat": "Inbound connection ratio",
+                      "legendFormat": "{{listener}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1677,9 +1677,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "rate(sni_router_inbound_connections_bytes_in_total[$__rate_interval])",
+                      "expr": "sum by (listener) (rate(sni_router_inbound_connections_bytes_in_total{listener=~\"$listener\"}[$__rate_interval]))",
                       "instant": false,
-                      "legendFormat": "byte in",
+                      "legendFormat": "byte in {{listener}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1699,9 +1699,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "-rate(sni_router_inbound_connections_bytes_out_total[$__rate_interval])",
+                      "expr": "-sum by (listener) (rate(sni_router_inbound_connections_bytes_out_total{listener=~\"$listener\"}[$__rate_interval]))",
                       "instant": false,
-                      "legendFormat": "byte out",
+                      "legendFormat": "byte out {{listener}}",
                       "range": true
                     },
                     "version": "v0"
@@ -1865,9 +1865,9 @@
                     "kind": "DataQuery",
                     "spec": {
                       "editorMode": "code",
-                      "expr": "histogram_quantile($quantile, sum(rate(sni_router_inbound_connections_time_seconds_bucket[$__rate_interval])) by (le))",
+                      "expr": "histogram_quantile($quantile, sum(rate(sni_router_inbound_connections_time_seconds_bucket{listener=~\"$listener\"}[$__rate_interval])) by (le,listener))",
                       "instant": false,
-                      "legendFormat": "open time",
+                      "legendFormat": "open time {{listener}}",
                       "range": true
                     },
                     "version": "v0"
@@ -2215,6 +2215,156 @@
           "version": "13.0.1+security-01"
         }
       }
+    },
+    "panel-21": {
+      "kind": "Panel",
+      "spec": {
+        "data": {
+          "kind": "QueryGroup",
+          "spec": {
+            "queries": [
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sni_router_listener_up{listener=~\"$listener\"}",
+                      "instant": false,
+                      "legendFormat": "up {{listener}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                }
+              },
+              {
+                "kind": "PanelQuery",
+                "spec": {
+                  "hidden": false,
+                  "query": {
+                    "datasource": {
+                      "name": "${DS}"
+                    },
+                    "group": "prometheus",
+                    "kind": "DataQuery",
+                    "spec": {
+                      "editorMode": "code",
+                      "expr": "sni_router_listener_addr_present{listener=~\"$listener\"}",
+                      "instant": false,
+                      "legendFormat": "addr present {{listener}}",
+                      "range": true
+                    },
+                    "version": "v0"
+                  },
+                  "refId": "A"
+                },
+                "refId": "B"
+              }
+            ],
+            "queryOptions": {},
+            "transformations": []
+          }
+        },
+        "description": "up: bound and accepting (0 while the bind is retried). addr present: the IP is on a local interface. up=1 with addr present=0 means bound but unreachable.",
+        "id": 21,
+        "links": [],
+        "title": "Listener status",
+        "vizConfig": {
+          "group": "timeseries",
+          "kind": "VizConfig",
+          "spec": {
+            "fieldConfig": {
+              "defaults": {
+                "color": {
+                  "mode": "palette-classic"
+                },
+                "custom": {
+                  "axisBorderShow": false,
+                  "axisCenteredZero": false,
+                  "axisColorMode": "text",
+                  "axisLabel": "",
+                  "axisPlacement": "auto",
+                  "barAlignment": 0,
+                  "barWidthFactor": 0.6,
+                  "drawStyle": "line",
+                  "fillOpacity": 0,
+                  "gradientMode": "none",
+                  "hideFrom": {
+                    "legend": false,
+                    "tooltip": false,
+                    "viz": false
+                  },
+                  "insertNulls": false,
+                  "lineInterpolation": "stepAfter",
+                  "lineWidth": 1,
+                  "pointSize": 5,
+                  "scaleDistribution": {
+                    "type": "linear"
+                  },
+                  "showPoints": "auto",
+                  "showValues": false,
+                  "spanNulls": false,
+                  "stacking": {
+                    "group": "A",
+                    "mode": "none"
+                  },
+                  "thresholdsStyle": {
+                    "mode": "off"
+                  }
+                },
+                "thresholds": {
+                  "mode": "absolute",
+                  "steps": [
+                    {
+                      "color": "red",
+                      "value": 0
+                    },
+                    {
+                      "color": "green",
+                      "value": 1
+                    }
+                  ]
+                },
+                "unit": "none",
+                "min": 0,
+                "max": 1
+              },
+              "overrides": []
+            },
+            "options": {
+              "annotations": {
+                "clustering": -1,
+                "multiLane": false
+              },
+              "legend": {
+                "calcs": [
+                  "lastNotNull",
+                  "min"
+                ],
+                "displayMode": "table",
+                "placement": "bottom",
+                "showLegend": true,
+                "sortBy": "Min",
+                "sortDesc": false
+              },
+              "tooltip": {
+                "hideZeros": false,
+                "mode": "single",
+                "sort": "none"
+              }
+            }
+          },
+          "version": "13.0.1+security-01"
+        }
+      }
     }
   },
   "layout": {
@@ -2298,6 +2448,33 @@
               }
             },
             "title": "Process"
+          }
+        },
+        {
+          "kind": "RowsLayoutRow",
+          "spec": {
+            "collapse": false,
+            "layout": {
+              "kind": "GridLayout",
+              "spec": {
+                "items": [
+                  {
+                    "kind": "GridLayoutItem",
+                    "spec": {
+                      "element": {
+                        "kind": "ElementReference",
+                        "name": "panel-21"
+                      },
+                      "height": 8,
+                      "width": 24,
+                      "x": 0,
+                      "y": 0
+                    }
+                  }
+                ]
+              }
+            },
+            "title": "Listeners"
           }
         },
         {
@@ -2578,6 +2755,43 @@
         "name": "job",
         "query": "sni-router",
         "skipUrlSync": true
+      }
+    },
+    {
+      "kind": "QueryVariable",
+      "spec": {
+        "allValue": ".*",
+        "allowCustomValue": true,
+        "current": {
+          "text": "All",
+          "value": [
+            "$__all"
+          ]
+        },
+        "definition": "label_values(sni_router_listener_up,listener)",
+        "hide": "dontHide",
+        "includeAll": true,
+        "label": "Listener",
+        "multi": true,
+        "name": "listener",
+        "options": [],
+        "query": {
+          "datasource": {
+            "name": "${DS}"
+          },
+          "group": "prometheus",
+          "kind": "DataQuery",
+          "spec": {
+            "qryType": 1,
+            "query": "label_values(sni_router_listener_up,listener)",
+            "refId": "PrometheusVariableQueryEditor-VariableQuery"
+          },
+          "version": "v0"
+        },
+        "refresh": "onDashboardLoad",
+        "regex": "",
+        "skipUrlSync": false,
+        "sort": "alphabeticalAsc"
       }
     },
     {

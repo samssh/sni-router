@@ -3,7 +3,7 @@ package server
 import (
 	"bufio"
 	"io"
-	"log"
+	"log/slog"
 	"net"
 	"sni-router/internal/monitoring"
 	"sync"
@@ -24,7 +24,7 @@ type connection struct {
 	conn      net.Conn
 	bufReader *bufio.Reader
 	once      sync.Once
-	metrics   *monitoring.Metrics
+	metrics   *monitoring.ListenerMetrics
 	openTime  time.Time
 }
 
@@ -57,12 +57,12 @@ func (ic *InboundConnection) Close() {
 		err := ic.conn.Close()
 		ic.metrics.ObserveCloseInboundConnection(time.Since(ic.openTime))
 		if err != nil {
-			log.Printf("error in close connection id=%d: %s", ic.id, err)
+			slog.Warn("close inbound connection failed", "id", ic.id, "error", err)
 		}
 	})
 }
 
-func newInboundConnection(conn net.Conn, metrics *monitoring.Metrics) *InboundConnection {
+func newInboundConnection(conn net.Conn, metrics *monitoring.ListenerMetrics) *InboundConnection {
 	metrics.ObserveOpenInboundConnection()
 	return &InboundConnection{
 		connection: connection{
@@ -97,12 +97,12 @@ func (oc *OutboundConnection) Close() {
 		err := oc.conn.Close()
 		oc.metrics.ObserveCloseOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, time.Since(oc.openTime))
 		if err != nil {
-			log.Printf("error in close connection id=%d sni=%s: %s", oc.id, oc.sniValue, err)
+			slog.Warn("close outbound connection failed", "id", oc.id, "sni", oc.sniValue, "error", err)
 		}
 	})
 }
 
-func newOutboundConnection(conn net.Conn, sniValue string, metrics *monitoring.Metrics) *OutboundConnection {
+func newOutboundConnection(conn net.Conn, sniValue string, metrics *monitoring.ListenerMetrics) *OutboundConnection {
 	metrics.ObserveOpenOutboundConnection(conn.RemoteAddr().String(), sniValue)
 	return &OutboundConnection{
 		connection: connection{

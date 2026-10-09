@@ -55,42 +55,105 @@ func labelsMatch(labels []*dto.LabelPair, want map[string]string) bool {
 func TestObserveHelpers(t *testing.T) {
 	reg := prometheus.NewRegistry()
 	m := NewMetricsWithRegisterer(reg)
+	lm := m.Listener("203.0.113.10:443")
+	listener := map[string]string{"listener": "203.0.113.10:443"}
 
-	m.ObserveOpenInboundConnection()
-	m.ObserveReadByteInboundConnection(10)
-	m.ObserveWriteByteInboundConnection(4)
-	m.ObserveCloseInboundConnection(time.Second)
+	lm.ObserveOpenInboundConnection()
+	lm.ObserveReadByteInboundConnection(10)
+	lm.ObserveWriteByteInboundConnection(4)
+	lm.ObserveCloseInboundConnection(time.Second)
 	m.ObserveParsedSni("prom.example.com", time.Millisecond)
-	m.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com")
-	m.ObserveReadByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 8)
-	m.ObserveWriteByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 2)
-	m.ObserveCloseOutboundConnection("127.0.0.1:8443", "prom.example.com", time.Second)
+	lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com")
+	lm.ObserveReadByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 8)
+	lm.ObserveWriteByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 2)
+	lm.ObserveCloseOutboundConnection("127.0.0.1:8443", "prom.example.com", time.Second)
 
-	if got := metricValue(t, reg, "sni_router_inbound_connections_total", nil); got != 1 {
+	if got := metricValue(t, reg, "sni_router_inbound_connections_total", listener); got != 1 {
 		t.Fatalf("inbound total = %v, want 1", got)
 	}
-	if got := metricValue(t, reg, "sni_router_inbound_connections_open", nil); got != 0 {
+	if got := metricValue(t, reg, "sni_router_inbound_connections_open", listener); got != 0 {
 		t.Fatalf("inbound open = %v, want 0", got)
 	}
-	if got := metricValue(t, reg, "sni_router_inbound_connections_bytes_in_total", nil); got != 10 {
+	if got := metricValue(t, reg, "sni_router_inbound_connections_bytes_in_total", listener); got != 10 {
 		t.Fatalf("inbound bytes in = %v, want 10", got)
 	}
-	if got := metricValue(t, reg, "sni_router_inbound_connections_bytes_out_total", nil); got != 4 {
+	if got := metricValue(t, reg, "sni_router_inbound_connections_bytes_out_total", listener); got != 4 {
 		t.Fatalf("inbound bytes out = %v, want 4", got)
 	}
 	if got := metricValue(t, reg, "sni_router_sni_parsed_total", map[string]string{"sni": "present"}); got != 1 {
 		t.Fatalf("sni parsed = %v, want 1", got)
 	}
-	if got := metricValue(t, reg, "sni_router_outbound_connections_total", map[string]string{"dst": "127.0.0.1:8443", "sni": "present"}); got != 1 {
+	outbound := map[string]string{"listener": "203.0.113.10:443", "dst": "127.0.0.1:8443", "sni": "present"}
+	if got := metricValue(t, reg, "sni_router_outbound_connections_total", outbound); got != 1 {
 		t.Fatalf("outbound total = %v, want 1", got)
 	}
-	if got := metricValue(t, reg, "sni_router_outbound_connections_open", map[string]string{"dst": "127.0.0.1:8443", "sni": "present"}); got != 0 {
+	if got := metricValue(t, reg, "sni_router_outbound_connections_open", outbound); got != 0 {
 		t.Fatalf("outbound open = %v, want 0", got)
 	}
 
-	m.ObserveConnectionError(ErrorDial)
-	m.ObserveConnectionError(ErrorDial)
-	if got := metricValue(t, reg, "sni_router_connection_errors_total", map[string]string{"reason": ErrorDial}); got != 2 {
+	lm.ObserveConnectionError(ErrorDial)
+	lm.ObserveConnectionError(ErrorDial)
+	if got := metricValue(t, reg, "sni_router_connection_errors_total", map[string]string{"listener": "203.0.113.10:443", "reason": ErrorDial}); got != 2 {
 		t.Fatalf("dial errors = %v, want 2", got)
 	}
+}
+
+func TestListenerSeriesDeletion(t *testing.T) {
+	reg := prometheus.NewRegistry()
+	m := NewMetricsWithRegisterer(reg)
+	gone := m.Listener("203.0.113.10:443")
+	kept := m.Listener("203.0.113.11:443")
+	for _, lm := range []*ListenerMetrics{gone, kept} {
+		lm.SetUp(true)
+		lm.SetAddrPresent(true)
+		lm.ObserveOpenInboundConnection()
+		lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com")
+		lm.ObserveConnectionError(ErrorDial)
+	}
+
+	m.DeleteListenerState("203.0.113.10:443")
+	if hasSeries(t, reg, "sni_router_listener_up", "203.0.113.10:443") || hasSeries(t, reg, "sni_router_listener_addr_present", "203.0.113.10:443") {
+		t.Fatal("listener state series should be deleted")
+	}
+	if !hasSeries(t, reg, "sni_router_inbound_connections_open", "203.0.113.10:443") {
+		t.Fatal("connection series should survive DeleteListenerState")
+	}
+
+	m.ForgetListener("203.0.113.10:443")
+	for _, name := range []string{
+		"sni_router_inbound_connections_total",
+		"sni_router_inbound_connections_open",
+		"sni_router_outbound_connections_total",
+		"sni_router_outbound_connections_open",
+		"sni_router_connection_errors_total",
+	} {
+		if hasSeries(t, reg, name, "203.0.113.10:443") {
+			t.Fatalf("%s should be deleted", name)
+		}
+		if !hasSeries(t, reg, name, "203.0.113.11:443") {
+			t.Fatalf("%s for the other listener should be kept", name)
+		}
+	}
+	if !hasSeries(t, reg, "sni_router_listener_up", "203.0.113.11:443") {
+		t.Fatal("other listener state should be kept")
+	}
+}
+
+func hasSeries(t *testing.T, reg *prometheus.Registry, name, listener string) bool {
+	t.Helper()
+	families, err := reg.Gather()
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, family := range families {
+		if family.GetName() != name {
+			continue
+		}
+		for _, metric := range family.GetMetric() {
+			if labelsMatch(metric.GetLabel(), map[string]string{"listener": listener}) {
+				return true
+			}
+		}
+	}
+	return false
 }
