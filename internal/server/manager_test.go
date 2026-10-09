@@ -3,9 +3,13 @@ package server
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/netip"
+	"os"
+	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -219,6 +223,26 @@ func TestManagerReloadRemovesListenerButKeepsConnections(t *testing.T) {
 	})
 }
 
+func TestManagerReloadLowersMaxConnectionsImmediately(t *testing.T) {
+	route, accepted := holdBackend(t)
+	routes := []routing.Route{route}
+	m, reg := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	addr := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, addr, 3, routes)})
+	waitUp(t, reg, addr)
+
+	openHeld(t, addr, accepted)
+	_, held := openHeld(t, addr, accepted)
+
+	m.Apply([]config.Listener{testSpec(t, addr, 1, routes)})
+	expectRejected(t, addr)
+
+	// Still over the new cap with one connection open.
+	_ = held.Close()
+	expectRejected(t, addr)
+}
+
 func TestManagerReloadChangesMaxConnections(t *testing.T) {
 	route, accepted := holdBackend(t)
 	routes := []routing.Route{route}
@@ -358,5 +382,173 @@ func TestProxyHeaderCarriesListenerAddress(t *testing.T) {
 				t.Fatal("timed out waiting for PROXY header")
 			}
 		})
+	}
+}
+
+func bindError(errno syscall.Errno) error {
+	return &net.OpError{Op: "listen", Net: "tcp4", Err: os.NewSyscallError("bind", errno)}
+}
+
+// stubListen makes binds to the given addresses fail with errno until fixed is called.
+type stubListen struct {
+	mu    sync.Mutex
+	errs  map[netip.AddrPort]error
+	calls map[netip.AddrPort]int
+}
+
+func newStubListen(m *Manager, errs map[netip.AddrPort]error) *stubListen {
+	s := &stubListen{errs: errs, calls: make(map[netip.AddrPort]int)}
+	m.listen = func(addr netip.AddrPort) (net.Listener, error) {
+		s.mu.Lock()
+		s.calls[addr]++
+		err := s.errs[addr]
+		s.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		return listen(addr)
+	}
+	return s
+}
+
+func (s *stubListen) set(addr netip.AddrPort, err error) {
+	s.mu.Lock()
+	s.errs[addr] = err
+	s.mu.Unlock()
+}
+
+func (s *stubListen) callCount(addr netip.AddrPort) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.calls[addr]
+}
+
+func TestManagerFailsWhenEveryListenerFailsPermanently(t *testing.T) {
+	routes := []routing.Route{{Domain: "default", Host: "127.0.0.1", Port: 9}}
+	a := freeAddr(t, "127.0.0.1")
+	b := freeAddr(t, "127.0.0.1")
+	m, reg := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	newStubListen(m, map[netip.AddrPort]error{a: bindError(syscall.EACCES), b: bindError(syscall.EAFNOSUPPORT)})
+
+	err := m.Apply([]config.Listener{testSpec(t, a, 0, routes), testSpec(t, b, 0, routes)})
+	if err == nil || !errors.Is(err, syscall.EACCES) || !errors.Is(err, syscall.EAFNOSUPPORT) {
+		t.Fatalf("err = %v, want both permanent bind errors", err)
+	}
+	if v, ok := listenerGauge(t, reg, "sni_router_listener_up", a.String()); !ok || v != 0 {
+		t.Fatalf("listener_up = %v (present %v), want 0", v, ok)
+	}
+}
+
+func TestManagerPermanentBindErrorStopsRetryingUntilReload(t *testing.T) {
+	routes := []routing.Route{{Domain: "default", Host: "127.0.0.1", Port: 9}}
+	broken := freeAddr(t, "127.0.0.1")
+	healthy := freeAddr(t, "127.0.0.1")
+	m, reg := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	stub := newStubListen(m, map[netip.AddrPort]error{broken: bindError(syscall.EACCES)})
+	specs := []config.Listener{testSpec(t, broken, 0, routes), testSpec(t, healthy, 0, routes)}
+
+	if err := m.Apply(specs); err != nil {
+		t.Fatalf("one healthy listener should be enough: %v", err)
+	}
+	waitUp(t, reg, healthy)
+	time.Sleep(5 * m.retryMax)
+	if n := stub.callCount(broken); n != 1 {
+		t.Fatalf("permanent bind error was retried: %d bind calls", n)
+	}
+
+	stub.set(broken, nil)
+	if err := m.Apply(specs); err != nil {
+		t.Fatal(err)
+	}
+	waitUp(t, reg, broken)
+}
+
+func TestManagerTransientBindErrorTurningPermanentStopsRetrying(t *testing.T) {
+	routes := []routing.Route{{Domain: "default", Host: "127.0.0.1", Port: 9}}
+	addr := freeAddr(t, "127.0.0.1")
+	m, _ := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	stub := newStubListen(m, map[netip.AddrPort]error{addr: bindError(syscall.EADDRINUSE)})
+	if err := m.Apply([]config.Listener{testSpec(t, addr, 0, routes)}); err != nil {
+		t.Fatalf("a retrying listener counts as healthy: %v", err)
+	}
+	eventually(t, "a few retries", func() bool { return stub.callCount(addr) >= 3 })
+
+	stub.set(addr, bindError(syscall.EACCES))
+	eventually(t, "the listener to be marked failed", func() bool {
+		m.mu.Lock()
+		defer m.mu.Unlock()
+		return m.listeners[addr.String()].isFailed()
+	})
+	n := stub.callCount(addr)
+	time.Sleep(5 * m.retryMax)
+	if got := stub.callCount(addr); got != n {
+		t.Fatalf("kept retrying after a permanent error: %d -> %d bind calls", n, got)
+	}
+}
+
+func TestManagerShutdownMarksListenersDown(t *testing.T) {
+	route, accepted := holdBackend(t)
+	m, reg := newTestManager(0)
+	addr := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, addr, 0, []routing.Route{route})})
+	waitUp(t, reg, addr)
+	client, backend := openHeld(t, addr, accepted)
+
+	done := make(chan error, 1)
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		done <- m.Shutdown(ctx)
+	}()
+	eventually(t, "listener_up to drop to 0 while draining", func() bool {
+		v, ok := listenerGauge(t, reg, "sni_router_listener_up", addr.String())
+		return ok && v == 0
+	})
+	_ = client.Close()
+	_ = backend.Close()
+	if err := <-done; err != nil {
+		t.Fatalf("drain should finish once the connection closes: %v", err)
+	}
+}
+
+func TestManagerServesConnectionAcceptedBeforeRemoval(t *testing.T) {
+	routes := []routing.Route{{Domain: "default", Host: "127.0.0.1", Port: 9}}
+	m, reg := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	removed := freeAddr(t, "127.0.0.1")
+	kept := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, removed, 0, routes)})
+	waitUp(t, reg, removed)
+	m.Apply([]config.Listener{testSpec(t, kept, 0, routes)})
+
+	// Simulates Accept returning just before the removal closed the socket.
+	client, server := net.Pipe()
+	defer client.Close()
+	if !m.track(removed.String(), server) {
+		t.Fatal("connection accepted before removal should still be served")
+	}
+	m.metrics.Listener(removed.String()).ObserveOpenInboundConnection()
+	if _, ok := listenerGauge(t, reg, "sni_router_inbound_connections_open", removed.String()); !ok {
+		t.Fatal("removed listener series should exist while its connection is open")
+	}
+	m.untrack(removed.String(), server)
+	eventually(t, "removed listener series to be deleted", func() bool {
+		_, ok := listenerGauge(t, reg, "sni_router_inbound_connections_open", removed.String())
+		return !ok
+	})
+}
+
+func TestManagerUnknownAddrStateIsNotReportedMissing(t *testing.T) {
+	m, reg := newTestManager(0)
+	shutdownOnCleanup(t, m)
+	m.interfaceAddrs = func() ([]net.Addr, error) { return nil, errors.New("netlink unavailable") }
+	addr := freeAddr(t, "127.0.0.1")
+	m.Apply([]config.Listener{testSpec(t, addr, 0, []routing.Route{{Domain: "default", Host: "127.0.0.1", Port: 9}})})
+	waitUp(t, reg, addr)
+	if v, ok := listenerGauge(t, reg, "sni_router_listener_addr_present", addr.String()); ok {
+		t.Fatalf("listener_addr_present = %v, want no series while the state is unknown", v)
 	}
 }

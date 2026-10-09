@@ -94,7 +94,7 @@ The PROXY v2 destination is the address the client connected to on that listener
 | `ROUTING_CONFIG_PATH` | `/etc/sni-router/routing.yaml` | Config file |
 | `METRICS_PORT` | `9113` | Prometheus `/metrics` port |
 | `MAX_CONNECTIONS` | `0` (unlimited) | In-flight cap across all listeners; extras are closed and counted as `max_conns`. A connection must also fit its listener's `maxConnections`. |
-| `SHUTDOWN_TIMEOUT_SECONDS` | `30` | Drain time on SIGTERM/SIGINT; leftovers are then closed |
+| `SHUTDOWN_TIMEOUT_SECONDS` | `30` | Drain time on SIGTERM/SIGINT; leftovers are then closed. Whole seconds; validated at startup. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
 
 In Kubernetes, set `terminationGracePeriodSeconds` higher than `SHUTDOWN_TIMEOUT_SECONDS`.
@@ -104,20 +104,25 @@ In Kubernetes, set `terminationGracePeriodSeconds` higher than `SHUTDOWN_TIMEOUT
 One listener never takes down the others:
 
 - On Linux every socket uses `IP_FREEBIND` / `IPV6_FREEBIND`. A bind to an address that is not on an interface yet succeeds: a floating IP that was just unassigned, or an IPv6 address that is still tentative during duplicate-address detection at boot. Connections arrive once the address appears.
-- Any other bind error (address in use, permission denied) is logged and retried in the background with backoff up to 30s. `sni_router_listener_up` is `0` meanwhile.
+- A transient bind error (for example address in use) is logged and retried in the background with backoff up to 30s. `sni_router_listener_up` is `0` meanwhile.
+- A permanent bind error (permission denied, address family not supported) is logged once and not retried. `listener_up` stays `0` until the next SIGHUP, which retries it.
+- Startup fails if every listener fails permanently, so a misdeployed process exits instead of looking healthy while routing nothing.
 
-Because FREEBIND makes a bind succeed even when the IP is missing, `listener_up` alone does not say the listener is reachable. `sni_router_listener_addr_present` is re-checked every 30s against the local interfaces, and a warning is logged whenever an address is or becomes missing. `listener_up == 1 and listener_addr_present == 0` means bound but unreachable, typically a floating IP that is not configured on the VM.
+Because FREEBIND makes a bind succeed even when the IP is missing, `listener_up` alone does not say the listener is reachable. `sni_router_listener_addr_present` is re-checked every 30s against the local interfaces, and a warning is logged whenever an address is or becomes missing. If the interfaces cannot be listed, the gauge is left as it was (or absent for a new listener) rather than reporting the address as missing. `listener_up == 1 and listener_addr_present == 0` means bound but unreachable, typically a floating IP that is not configured on the VM.
 
 ## Signals
 
 - **SIGHUP** reloads the config and reconciles listeners:
   - new listeners are opened;
   - removed listeners stop accepting; their open connections keep running until they end;
-  - existing listeners get the new routes; a changed `maxConnections` applies to new connections;
+  - existing listeners get the new routes and `maxConnections`; a lower cap applies at once, counting connections already open;
+  - listeners whose bind failed permanently are retried;
   - an invalid file is logged and nothing changes.
 
+  A connection accepted just before its listener was removed is still served.
+
   Connections already open keep the routes they started with. Rotating an IP is a config edit plus SIGHUP, with no restart and no dropped tunnels.
-- **SIGTERM** / **SIGINT** stop every listener, wait for in-flight copies, then force-close anything still open.
+- **SIGTERM** / **SIGINT** stop every listener (`listener_up` drops to `0`), wait for in-flight copies, then force-close anything still open.
 
 ## Metrics
 
@@ -127,7 +132,7 @@ The inbound, outbound and `connection_errors_total` series carry `listener="ip:p
 
 | Metric | Meaning |
 | --- | --- |
-| `sni_router_listener_up{listener}` | `1` bound and accepting, `0` bind is being retried |
+| `sni_router_listener_up{listener}` | `1` bound and accepting, `0` not bound (retrying, failed permanently, or shutting down) |
 | `sni_router_listener_addr_present{listener}` | `1` if the IP is on a local interface (always `1` for wildcards) |
 
 When a listener is removed, its `listener_up` and `listener_addr_present` series go away immediately. Its connection series stay until its last connection closes, so open-connection totals keep adding up.

@@ -16,42 +16,38 @@ import (
 	"github.com/pires/go-proxyproto"
 )
 
-// limiter caps in-flight connections. A nil limiter is unlimited.
+// limiter caps in-flight connections against its current max (0 = unlimited).
+// Lowering the max applies at once: connections already open still count.
 type limiter struct {
-	max int
-	sem chan struct{}
+	max atomic.Int64
+	n   atomic.Int64
 }
 
 func newLimiter(max int) *limiter {
-	if max <= 0 {
-		return nil
-	}
-	return &limiter{max: max, sem: make(chan struct{}, max)}
+	l := &limiter{}
+	l.max.Store(int64(max))
+	return l
+}
+
+// setMax reports whether the max changed.
+func (l *limiter) setMax(max int) bool {
+	return l.max.Swap(int64(max)) != int64(max)
 }
 
 func (l *limiter) tryAcquire() bool {
-	if l == nil {
-		return true
-	}
-	select {
-	case l.sem <- struct{}{}:
-		return true
-	default:
-		return false
+	for {
+		n := l.n.Load()
+		if max := l.max.Load(); max > 0 && n >= max {
+			return false
+		}
+		if l.n.CompareAndSwap(n, n+1) {
+			return true
+		}
 	}
 }
 
 func (l *limiter) release() {
-	if l != nil {
-		<-l.sem
-	}
-}
-
-func (l *limiter) limit() int {
-	if l == nil {
-		return 0
-	}
-	return l.max
+	l.n.Add(-1)
 }
 
 // Listener serves one listen address. It is created and removed by a Manager.
@@ -61,11 +57,12 @@ type Listener struct {
 	mgr     *Manager
 	metrics *monitoring.ListenerMetrics
 	router  atomic.Pointer[routing.SNIRouter]
-	limit   atomic.Pointer[limiter]
+	limit   *limiter
 
 	mu      sync.Mutex
 	ln      net.Listener
 	stopped bool
+	failed  bool // the last bind failed permanently; the next Apply retries it
 	stop    chan struct{}
 	present int8 // last listener_addr_present value, -1 before the first check
 }
@@ -76,11 +73,11 @@ func (m *Manager) newListener(spec config.Listener) *Listener {
 		addr:    spec.Addr,
 		mgr:     m,
 		metrics: m.metrics.Listener(spec.Name()),
+		limit:   newLimiter(spec.MaxConnections),
 		stop:    make(chan struct{}),
 		present: -1,
 	}
 	l.router.Store(spec.Router)
-	l.limit.Store(newLimiter(spec.MaxConnections))
 	l.metrics.SetUp(false)
 	return l
 }
@@ -88,40 +85,82 @@ func (m *Manager) newListener(spec config.Listener) *Listener {
 // update applies a reloaded spec to a running listener.
 func (l *Listener) update(spec config.Listener) {
 	l.router.Store(spec.Router)
-	if l.limit.Load().limit() != spec.MaxConnections {
-		// Connections already open release the limiter they acquired.
-		l.limit.Store(newLimiter(spec.MaxConnections))
+	if l.limit.setMax(spec.MaxConnections) {
 		slog.Info("listener maxConnections changed", "listener", l.name, "maxConnections", spec.MaxConnections)
 	}
 }
 
-// run binds the address, retrying with backoff until it succeeds or the listener is stopped, then serves it.
-func (l *Listener) run() {
+// start makes the first bind attempt. A transient failure keeps retrying in the background;
+// a permanent one is returned and only retried by the next Apply.
+func (l *Listener) start() error {
+	l.mu.Lock()
+	l.failed = false
+	l.mu.Unlock()
+	l.mgr.acquireSeries(l.name)
+	ln, err := l.mgr.listen(l.addr)
+	switch {
+	case err == nil:
+		go l.serveAndRelease(ln)
+	case isPermanentBindError(err):
+		l.fail(err)
+		return err
+	default:
+		slog.Error("bind failed, retrying", "listener", l.name, "error", err, "retry_in", l.mgr.retryInitial)
+		go l.retry()
+	}
+	return nil
+}
+
+func (l *Listener) retry() {
 	backoff := l.mgr.retryInitial
 	for {
-		ln, err := listen(l.addr)
-		if err == nil {
-			l.mu.Lock()
-			if l.stopped {
-				l.mu.Unlock()
-				_ = ln.Close()
-				return
-			}
-			l.ln = ln
-			l.metrics.SetUp(true)
-			l.mu.Unlock()
-			slog.Info("listening", "listener", l.name)
-			l.serve(ln)
-			return
-		}
-		slog.Error("bind failed, retrying", "listener", l.name, "error", err, "retry_in", backoff)
 		select {
 		case <-l.stop:
+			l.mgr.releaseSeries(l.name)
 			return
 		case <-time.After(backoff):
 		}
+		ln, err := l.mgr.listen(l.addr)
+		if err == nil {
+			l.serveAndRelease(ln)
+			return
+		}
+		if isPermanentBindError(err) {
+			l.fail(err)
+			return
+		}
 		backoff = min(backoff*2, l.mgr.retryMax)
+		slog.Error("bind failed, retrying", "listener", l.name, "error", err, "retry_in", backoff)
 	}
+}
+
+func (l *Listener) fail(err error) {
+	l.mu.Lock()
+	l.failed = true
+	l.mu.Unlock()
+	slog.Error("bind failed permanently; fix the cause and reload (SIGHUP) to retry", "listener", l.name, "error", err)
+	l.mgr.releaseSeries(l.name)
+}
+
+func (l *Listener) isFailed() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.failed
+}
+
+func (l *Listener) serveAndRelease(ln net.Listener) {
+	defer l.mgr.releaseSeries(l.name)
+	l.mu.Lock()
+	if l.stopped {
+		l.mu.Unlock()
+		_ = ln.Close()
+		return
+	}
+	l.ln = ln
+	l.metrics.SetUp(true)
+	l.mu.Unlock()
+	slog.Info("listening", "listener", l.name)
+	l.serve(ln)
 }
 
 // stopListening closes the listening socket. Accepted connections are left running.
@@ -132,16 +171,11 @@ func (l *Listener) stopListening() {
 		return
 	}
 	l.stopped = true
+	l.metrics.SetUp(false)
 	close(l.stop)
 	if l.ln != nil {
 		_ = l.ln.Close()
 	}
-}
-
-func (l *Listener) isStopped() bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.stopped
 }
 
 func (l *Listener) setAddrPresent(present bool) {
@@ -185,22 +219,22 @@ func (l *Listener) serve(ln net.Listener) {
 		}
 		backoff = 10 * time.Millisecond
 		enableKeepAlive(conn)
-		own := l.limit.Load()
-		if !own.tryAcquire() {
+		if !l.limit.tryAcquire() {
 			l.rejectMaxConns(conn, "listener")
 			continue
 		}
 		if !l.mgr.global.tryAcquire() {
-			own.release()
+			l.limit.release()
 			l.rejectMaxConns(conn, "global")
 			continue
 		}
 		release := func() {
 			l.mgr.global.release()
-			own.release()
+			l.limit.release()
 		}
-		if !l.mgr.track(l, conn) {
+		if !l.mgr.track(l.name, conn) {
 			release()
+			slog.Info("closing connection accepted during shutdown", "listener", l.name, "remote", conn.RemoteAddr())
 			_ = conn.Close()
 			continue
 		}

@@ -66,7 +66,8 @@ func (f *file) validate() ([]Listener, error) {
 	if len(f.Listeners) == 0 {
 		return nil, errors.New("at least one listener is required")
 	}
-	if err := routing.ValidateRoutes(f.Routes); err != nil {
+	shared, err := routing.Prepare(f.Routes)
+	if err != nil {
 		return nil, fmt.Errorf("shared routes: %w", err)
 	}
 	listeners := make([]Listener, 0, len(f.Listeners))
@@ -85,7 +86,7 @@ func (f *file) validate() ([]Listener, error) {
 		}
 		routes := lf.Routes
 		if lf.InheritRoutes == nil || *lf.InheritRoutes {
-			routes = mergeRoutes(addr.String(), lf.Routes, f.Routes)
+			routes = mergeRoutes(addr.String(), lf.Routes, shared)
 		}
 		router, err := routing.NewSNIRouter(routes)
 		if err != nil {

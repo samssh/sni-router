@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net"
 	"net/netip"
+	"syscall"
 )
 
 // listen binds addr. 0.0.0.0 only covers IPv4 and [::] is dual-stack, matching the
@@ -19,4 +21,13 @@ func listen(addr netip.AddrPort) (net.Listener, error) {
 	}
 	lc := net.ListenConfig{Control: freebind}
 	return lc.Listen(context.Background(), network, addr.String())
+}
+
+// isPermanentBindError reports bind errors that retrying cannot fix without changing the
+// config or the host: missing privileges, or an address family the kernel does not support.
+func isPermanentBindError(err error) bool {
+	return errors.Is(err, syscall.EACCES) ||
+		errors.Is(err, syscall.EPERM) ||
+		errors.Is(err, syscall.EAFNOSUPPORT) ||
+		errors.Is(err, syscall.EPROTONOSUPPORT)
 }

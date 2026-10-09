@@ -1,6 +1,8 @@
 package config
 
 import (
+	"bytes"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -382,5 +384,28 @@ func TestWildcardOverlap(t *testing.T) {
 			}
 			wantParseError(t, b.String(), tt.want)
 		})
+	}
+}
+
+func TestSharedRoutesPreparedOnce(t *testing.T) {
+	var logs bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	mustParse(t, `
+routes:
+  - domain: blocked.example.com
+    reverseMatch: true
+    port: 443
+  - domain: default
+    port: 443
+listeners:
+  - addr: 203.0.113.10:443
+  - addr: 203.0.113.11:443
+  - addr: 203.0.113.12:443
+`)
+	if n := strings.Count(logs.String(), "reverseMatch without useRegex"); n != 1 {
+		t.Fatalf("shared route warning logged %d times, want 1:\n%s", n, logs.String())
 	}
 }

@@ -29,16 +29,16 @@ func fatal(msg string, args ...any) {
 	os.Exit(1)
 }
 
-func getIntEnv(env string, defaultValue int) int {
+func getIntEnv(env string, defaultValue int) (int, error) {
 	stringValue, exists := os.LookupEnv(env)
 	if !exists {
-		return defaultValue
+		return defaultValue, nil
 	}
 	value, err := strconv.Atoi(stringValue)
 	if err != nil {
-		fatal("could not parse env", "name", env, "error", err)
+		return 0, fmt.Errorf("could not parse %s: %w", env, err)
 	}
-	return value
+	return value, nil
 }
 
 func getStringEnv(env string, defaultValue string) string {
@@ -47,6 +47,31 @@ func getStringEnv(env string, defaultValue string) string {
 		return defaultValue
 	}
 	return stringValue
+}
+
+type settings struct {
+	configPath      string
+	metricsPort     int
+	maxConns        int
+	shutdownTimeout time.Duration
+}
+
+// loadSettings reads every env var up front, so a bad value fails at startup instead of on SIGTERM.
+func loadSettings() (settings, error) {
+	s := settings{configPath: getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml")}
+	var err error
+	if s.metricsPort, err = getIntEnv("METRICS_PORT", 9113); err != nil {
+		return settings{}, err
+	}
+	if s.maxConns, err = getIntEnv("MAX_CONNECTIONS", 0); err != nil {
+		return settings{}, err
+	}
+	seconds, err := getIntEnv("SHUTDOWN_TIMEOUT_SECONDS", 30)
+	if err != nil {
+		return settings{}, err
+	}
+	s.shutdownTimeout = time.Duration(seconds) * time.Second
+	return s, nil
 }
 
 func setupLogging(levelName string) error {
@@ -70,9 +95,11 @@ func checkRemovedEnv() error {
 func reload(path string, mgr *server.Manager) error {
 	listeners, err := config.Load(path)
 	if err != nil {
-		return err
+		return fmt.Errorf("keeping previous config: %w", err)
 	}
-	mgr.Apply(listeners)
+	if err := mgr.Apply(listeners); err != nil {
+		return fmt.Errorf("config applied, but %w", err)
+	}
 	return nil
 }
 
@@ -83,16 +110,20 @@ func main() {
 	if err := checkRemovedEnv(); err != nil {
 		fatal("invalid config", "error", err)
 	}
-	metricsPort := getIntEnv("METRICS_PORT", 9113)
-	configPath := getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml")
-	listeners, err := config.Load(configPath)
+	cfg, err := loadSettings()
 	if err != nil {
-		fatal("invalid routing config", "path", configPath, "error", err)
+		fatal("invalid config", "error", err)
+	}
+	listeners, err := config.Load(cfg.configPath)
+	if err != nil {
+		fatal("invalid routing config", "path", cfg.configPath, "error", err)
 	}
 	metrics := monitoring.NewMetrics()
-	go metrics.Start(metricsPort)
-	mgr := server.NewManager(metrics, getIntEnv("MAX_CONNECTIONS", 0))
-	mgr.Apply(listeners)
+	go metrics.Start(cfg.metricsPort)
+	mgr := server.NewManager(metrics, cfg.maxConns)
+	if err := mgr.Apply(listeners); err != nil {
+		fatal("startup failed", "error", err)
+	}
 
 	ctx, stopWatch := context.WithCancel(context.Background())
 	defer stopWatch()
@@ -102,8 +133,8 @@ func main() {
 	signal.Notify(hup, syscall.SIGHUP)
 	go func() {
 		for range hup {
-			if err := reload(configPath, mgr); err != nil {
-				slog.Error("reload failed; keeping previous config", "error", err)
+			if err := reload(cfg.configPath, mgr); err != nil {
+				slog.Error("reload failed", "error", err)
 				continue
 			}
 			slog.Info("reloaded routing config")
@@ -114,8 +145,7 @@ func main() {
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	<-sig
 
-	timeout := time.Duration(getIntEnv("SHUTDOWN_TIMEOUT_SECONDS", 30)) * time.Second
-	shutdownCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), cfg.shutdownTimeout)
 	defer cancel()
 	if err := mgr.Shutdown(shutdownCtx); err != nil {
 		slog.Warn("shutdown", "error", err)

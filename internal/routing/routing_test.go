@@ -211,3 +211,27 @@ func TestDialTimeoutDefaultAndOverride(t *testing.T) {
 		t.Fatalf("default timeout = %s, want %ds", timeout, DefaultDialTimeoutSeconds)
 	}
 }
+
+func TestPreparedRoutesAreNotRecompiled(t *testing.T) {
+	prepared, err := Prepare([]Route{
+		{Domain: `.*\.example\.com`, Port: 443, UseRegex: true},
+		{Domain: "default", Port: 443},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a := mustRouter(t, prepared)
+	b := mustRouter(t, append([]Route{{Domain: "api.example.com", Port: 8443}}, prepared...))
+	if a.Routes[0].compiled != prepared[0].compiled || b.Routes[1].compiled != prepared[0].compiled {
+		t.Fatal("NewSNIRouter recompiled a prepared regex")
+	}
+}
+
+func TestPrepareRejectsDuplicateSpecialsWithoutRequiringDefault(t *testing.T) {
+	if _, err := Prepare([]Route{{Domain: "api.example.com", Port: 443}}); err != nil {
+		t.Fatalf("default should be optional: %v", err)
+	}
+	if _, err := Prepare([]Route{{Domain: "default", Port: 443}, {Domain: "default", Port: 444}}); err == nil {
+		t.Fatal("expected duplicate default error")
+	}
+}

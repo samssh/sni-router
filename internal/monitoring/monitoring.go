@@ -58,40 +58,15 @@ func (m *Metrics) ObserveParsedSni(sniParsed string, parseTime time.Duration) {
 	m.sniParseTimeSeconds.WithLabelValues(label).Observe(parseTime.Seconds())
 }
 
-// ListenerMetrics records connection metrics with the listener label already set.
+// ListenerMetrics records connection metrics for one listener. Series are looked up on every
+// call, so a listener whose series were deleted gets them back when it is used again.
 type ListenerMetrics struct {
-	inboundTotal     prometheus.Counter
-	inboundOpen      prometheus.Gauge
-	inboundBytesIn   prometheus.Counter
-	inboundBytesOut  prometheus.Counter
-	inboundTime      prometheus.Observer
-	outboundTotal    *prometheus.CounterVec
-	outboundOpen     *prometheus.GaugeVec
-	outboundBytesIn  *prometheus.CounterVec
-	outboundBytesOut *prometheus.CounterVec
-	outboundTime     prometheus.ObserverVec
-	errors           *prometheus.CounterVec
-	up               prometheus.Gauge
-	addrPresent      prometheus.Gauge
+	m    *Metrics
+	name string
 }
 
 func (m *Metrics) Listener(name string) *ListenerMetrics {
-	labels := prometheus.Labels{"listener": name}
-	return &ListenerMetrics{
-		inboundTotal:     m.inboundConnectionsTotal.WithLabelValues(name),
-		inboundOpen:      m.inboundConnectionsOpen.WithLabelValues(name),
-		inboundBytesIn:   m.inboundConnectionsBytesInTotal.WithLabelValues(name),
-		inboundBytesOut:  m.inboundConnectionsBytesOutTotal.WithLabelValues(name),
-		inboundTime:      m.inboundConnectionsTimeSeconds.WithLabelValues(name),
-		outboundTotal:    m.outboundConnectionsTotal.MustCurryWith(labels),
-		outboundOpen:     m.outboundConnectionsOpen.MustCurryWith(labels),
-		outboundBytesIn:  m.outboundConnectionsBytesInTotal.MustCurryWith(labels),
-		outboundBytesOut: m.outboundConnectionsBytesOutTotal.MustCurryWith(labels),
-		outboundTime:     m.outboundConnectionsTimeSeconds.MustCurryWith(labels),
-		errors:           m.connectionErrorsTotal.MustCurryWith(labels),
-		up:               m.listenerUp.WithLabelValues(name),
-		addrPresent:      m.listenerAddrPresent.WithLabelValues(name),
-	}
+	return &ListenerMetrics{m: m, name: name}
 }
 
 // DeleteListenerState removes the listener_up and listener_addr_present series.
@@ -124,54 +99,56 @@ func boolGauge(b bool) float64 {
 	return 0
 }
 
+// SetUp and SetAddrPresent create their series on first use, so a state that was never
+// observed has no series instead of reading as 0.
 func (lm *ListenerMetrics) SetUp(up bool) {
-	lm.up.Set(boolGauge(up))
+	lm.m.listenerUp.WithLabelValues(lm.name).Set(boolGauge(up))
 }
 
 func (lm *ListenerMetrics) SetAddrPresent(present bool) {
-	lm.addrPresent.Set(boolGauge(present))
+	lm.m.listenerAddrPresent.WithLabelValues(lm.name).Set(boolGauge(present))
 }
 
 func (lm *ListenerMetrics) ObserveOpenInboundConnection() {
-	lm.inboundTotal.Inc()
-	lm.inboundOpen.Inc()
+	lm.m.inboundConnectionsTotal.WithLabelValues(lm.name).Inc()
+	lm.m.inboundConnectionsOpen.WithLabelValues(lm.name).Inc()
 }
 
 func (lm *ListenerMetrics) ObserveCloseInboundConnection(openTime time.Duration) {
-	lm.inboundOpen.Dec()
-	lm.inboundTime.Observe(openTime.Seconds())
+	lm.m.inboundConnectionsOpen.WithLabelValues(lm.name).Dec()
+	lm.m.inboundConnectionsTimeSeconds.WithLabelValues(lm.name).Observe(openTime.Seconds())
 }
 
 func (lm *ListenerMetrics) ObserveReadByteInboundConnection(byteRead int) {
-	lm.inboundBytesIn.Add(float64(byteRead))
+	lm.m.inboundConnectionsBytesInTotal.WithLabelValues(lm.name).Add(float64(byteRead))
 }
 
 func (lm *ListenerMetrics) ObserveWriteByteInboundConnection(byteWritten int) {
-	lm.inboundBytesOut.Add(float64(byteWritten))
+	lm.m.inboundConnectionsBytesOutTotal.WithLabelValues(lm.name).Add(float64(byteWritten))
 }
 
 func (lm *ListenerMetrics) ObserveOpenOutboundConnection(dst, sni string) {
 	sni = sniLabel(sni)
-	lm.outboundTotal.WithLabelValues(dst, sni).Inc()
-	lm.outboundOpen.WithLabelValues(dst, sni).Inc()
+	lm.m.outboundConnectionsTotal.WithLabelValues(lm.name, dst, sni).Inc()
+	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni).Inc()
 }
 
 func (lm *ListenerMetrics) ObserveCloseOutboundConnection(dst, sni string, openTime time.Duration) {
 	sni = sniLabel(sni)
-	lm.outboundOpen.WithLabelValues(dst, sni).Dec()
-	lm.outboundTime.WithLabelValues(dst, sni).Observe(openTime.Seconds())
+	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni).Dec()
+	lm.m.outboundConnectionsTimeSeconds.WithLabelValues(lm.name, dst, sni).Observe(openTime.Seconds())
 }
 
 func (lm *ListenerMetrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead int) {
-	lm.outboundBytesIn.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteRead))
+	lm.m.outboundConnectionsBytesInTotal.WithLabelValues(lm.name, dst, sniLabel(sni)).Add(float64(byteRead))
 }
 
 func (lm *ListenerMetrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
-	lm.outboundBytesOut.WithLabelValues(dst, sniLabel(sni)).Add(float64(byteWrite))
+	lm.m.outboundConnectionsBytesOutTotal.WithLabelValues(lm.name, dst, sniLabel(sni)).Add(float64(byteWrite))
 }
 
 func (lm *ListenerMetrics) ObserveConnectionError(reason string) {
-	lm.errors.WithLabelValues(reason).Inc()
+	lm.m.connectionErrorsTotal.WithLabelValues(lm.name, reason).Inc()
 }
 
 func NewMetrics() *Metrics {
