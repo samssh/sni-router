@@ -235,3 +235,34 @@ func TestPrepareRejectsDuplicateSpecialsWithoutRequiringDefault(t *testing.T) {
 		t.Fatal("expected duplicate default error")
 	}
 }
+
+// Match hands the server the route itself; its domain becomes the outbound metrics' route label.
+func TestMatchReturnsRoute(t *testing.T) {
+	router := mustRouter(t, []Route{
+		{Domain: "prom.example.com", Port: 8443},
+		{Domain: `.*\.internal\.example\.com`, Port: 443, UseRegex: true},
+		{Domain: "blocked.example.com", Port: 9, ReverseMatch: true},
+		{Domain: "non-tls", Port: 8080},
+		{Domain: "default", Port: 444},
+	})
+	tests := []struct {
+		sni   string
+		isTLS bool
+		want  string
+	}{
+		{"prom.example.com", true, "prom.example.com"},
+		{"api.internal.example.com", true, `.*\.internal\.example\.com`},
+		{"other.example.com", true, "blocked.example.com"},
+		{"blocked.example.com", true, "default"},
+		{"", false, "non-tls"},
+	}
+	for _, tt := range tests {
+		route, err := router.Match(tt.sni, tt.isTLS)
+		if err != nil {
+			t.Fatalf("Match(%q) error: %v", tt.sni, err)
+		}
+		if route.Domain != tt.want {
+			t.Errorf("Match(%q, %v) = %q, want %q", tt.sni, tt.isTLS, route.Domain, tt.want)
+		}
+	}
+}

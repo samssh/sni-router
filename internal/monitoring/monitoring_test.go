@@ -63,10 +63,10 @@ func TestObserveHelpers(t *testing.T) {
 	lm.ObserveWriteByteInboundConnection(4)
 	lm.ObserveCloseInboundConnection(time.Second)
 	m.ObserveParsedSni("prom.example.com", time.Millisecond)
-	lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com")
-	lm.ObserveReadByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 8)
-	lm.ObserveWriteByteOutboundConnection("127.0.0.1:8443", "prom.example.com", 2)
-	lm.ObserveCloseOutboundConnection("127.0.0.1:8443", "prom.example.com", time.Second)
+	lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com", "prom.example.com")
+	lm.ObserveReadByteOutboundConnection("127.0.0.1:8443", "prom.example.com", "prom.example.com", 8)
+	lm.ObserveWriteByteOutboundConnection("127.0.0.1:8443", "prom.example.com", "prom.example.com", 2)
+	lm.ObserveCloseOutboundConnection("127.0.0.1:8443", "prom.example.com", "prom.example.com", time.Second)
 
 	if got := metricValue(t, reg, "sni_router_inbound_connections_total", listener); got != 1 {
 		t.Fatalf("inbound total = %v, want 1", got)
@@ -83,12 +83,18 @@ func TestObserveHelpers(t *testing.T) {
 	if got := metricValue(t, reg, "sni_router_sni_parsed_total", map[string]string{"sni": "present"}); got != 1 {
 		t.Fatalf("sni parsed = %v, want 1", got)
 	}
-	outbound := map[string]string{"listener": "203.0.113.10:443", "dst": "127.0.0.1:8443", "sni": "present"}
+	outbound := map[string]string{"listener": "203.0.113.10:443", "dst": "127.0.0.1:8443", "sni": "present", "route": "prom.example.com"}
 	if got := metricValue(t, reg, "sni_router_outbound_connections_total", outbound); got != 1 {
 		t.Fatalf("outbound total = %v, want 1", got)
 	}
 	if got := metricValue(t, reg, "sni_router_outbound_connections_open", outbound); got != 0 {
 		t.Fatalf("outbound open = %v, want 0", got)
+	}
+	if got := metricValue(t, reg, "sni_router_outbound_connections_bytes_in_total", outbound); got != 8 {
+		t.Fatalf("outbound bytes in = %v, want 8", got)
+	}
+	if got := metricValue(t, reg, "sni_router_outbound_connections_bytes_out_total", outbound); got != 2 {
+		t.Fatalf("outbound bytes out = %v, want 2", got)
 	}
 
 	lm.ObserveConnectionError(ErrorDial)
@@ -107,7 +113,7 @@ func TestListenerSeriesDeletion(t *testing.T) {
 		lm.SetUp(true)
 		lm.SetAddrPresent(true)
 		lm.ObserveOpenInboundConnection()
-		lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com")
+		lm.ObserveOpenOutboundConnection("127.0.0.1:8443", "prom.example.com", "prom.example.com")
 		lm.ObserveConnectionError(ErrorDial)
 	}
 

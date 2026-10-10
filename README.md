@@ -130,6 +130,12 @@ Prometheus scrapes `http://<host>:9113/metrics`.
 
 The inbound, outbound and `connection_errors_total` series carry `listener="ip:port"`. SNI labels on parse and outbound series are `present`, `empty`, or `error`, not hostnames.
 
+Outbound series also carry `route`: the `domain` of the route the connection matched (the regex itself for `useRegex` routes, `default` or `non-tls` for those two). It tells the names in your config apart, for example an old name clients are migrating away from, while an SNI that matches no route still lands in `default`, so the number of series stays bounded by the config.
+
+```promql
+sum by (route) (rate(sni_router_outbound_connections_total[1h]))
+```
+
 | Metric | Meaning |
 | --- | --- |
 | `sni_router_listener_up{listener}` | `1` bound and accepting, `0` not bound (retrying, failed permanently, or shutting down) |
@@ -147,7 +153,7 @@ When a listener is removed, its `listener_up` and `listener_addr_present` series
 | `max_conns` | Rejected because `MAX_CONNECTIONS` or the listener's `maxConnections` is full |
 | `proxy_header` | PROXY v2 write failed |
 
-Import `grafana/dashboard.json` for the bundled dashboard. It has a `$listener` variable and a listener status panel.
+Import `grafana/dashboard.json` for the bundled dashboard. It has a `$listener` variable, a listener status panel, and a Routes row with open connections, new connections and traffic per route.
 
 ## Build and run
 

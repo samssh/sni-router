@@ -78,32 +78,33 @@ func newInboundConnection(conn net.Conn, metrics *monitoring.ListenerMetrics) *I
 type OutboundConnection struct {
 	connection
 	sniValue string
+	route    string
 }
 
 func (oc *OutboundConnection) Read(p []byte) (int, error) {
 	n, err := oc.bufReader.Read(p)
-	oc.metrics.ObserveReadByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, n)
+	oc.metrics.ObserveReadByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, oc.route, n)
 	return n, err
 }
 
 func (oc *OutboundConnection) Write(p []byte) (int, error) {
 	n, err := oc.conn.Write(p)
-	oc.metrics.ObserveWriteByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, n)
+	oc.metrics.ObserveWriteByteOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, oc.route, n)
 	return n, err
 }
 
 func (oc *OutboundConnection) Close() {
 	oc.once.Do(func() {
 		err := oc.conn.Close()
-		oc.metrics.ObserveCloseOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, time.Since(oc.openTime))
+		oc.metrics.ObserveCloseOutboundConnection(oc.conn.RemoteAddr().String(), oc.sniValue, oc.route, time.Since(oc.openTime))
 		if err != nil {
 			slog.Warn("close outbound connection failed", "id", oc.id, "sni", oc.sniValue, "error", err)
 		}
 	})
 }
 
-func newOutboundConnection(conn net.Conn, sniValue string, metrics *monitoring.ListenerMetrics) *OutboundConnection {
-	metrics.ObserveOpenOutboundConnection(conn.RemoteAddr().String(), sniValue)
+func newOutboundConnection(conn net.Conn, sniValue, route string, metrics *monitoring.ListenerMetrics) *OutboundConnection {
+	metrics.ObserveOpenOutboundConnection(conn.RemoteAddr().String(), sniValue, route)
 	return &OutboundConnection{
 		connection: connection{
 			conn:      conn,
@@ -113,5 +114,6 @@ func newOutboundConnection(conn net.Conn, sniValue string, metrics *monitoring.L
 			openTime:  time.Now(),
 		},
 		sniValue: sniValue,
+		route:    route,
 	}
 }

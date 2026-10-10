@@ -271,14 +271,15 @@ func (l *Listener) handleConnection(conn net.Conn) {
 		logger.Warn("clear read deadline failed", "error", err)
 	}
 	logger = logger.With("sni", sniValue)
-	useProxy, dstAddr, dialTimeout, err := l.router.Load().Route(sniValue, isTls)
+	route, err := l.router.Load().Match(sniValue, isTls)
 	if err != nil {
 		l.metrics.ObserveConnectionError(monitoring.ErrorNoRoute)
 		logger.Info("no route", "error", err)
 		return
 	}
-	logger = logger.With("dest", dstAddr)
-	oc, err := dialTcp(dstAddr, sniValue, dialTimeout, l.metrics)
+	useProxy, dstAddr, dialTimeout := route.Destination()
+	logger = logger.With("route", route.Domain, "dest", dstAddr)
+	oc, err := dialTcp(dstAddr, sniValue, route.Domain, dialTimeout, l.metrics)
 	if err != nil {
 		l.metrics.ObserveConnectionError(monitoring.ErrorDial)
 		logger.Warn("dial failed", "error", err)
@@ -297,7 +298,7 @@ func (l *Listener) handleConnection(conn net.Conn) {
 	CopyStreamsBidirectional(ic, oc)
 }
 
-func dialTcp(dstAddr string, sniValue string, timeout time.Duration, metrics *monitoring.ListenerMetrics) (*OutboundConnection, error) {
+func dialTcp(dstAddr, sniValue, route string, timeout time.Duration, metrics *monitoring.ListenerMetrics) (*OutboundConnection, error) {
 	if timeout <= 0 {
 		timeout = time.Duration(routing.DefaultDialTimeoutSeconds) * time.Second
 	}
@@ -306,7 +307,7 @@ func dialTcp(dstAddr string, sniValue string, timeout time.Duration, metrics *mo
 		return nil, err
 	}
 	enableKeepAlive(dst)
-	return newOutboundConnection(dst, sniValue, metrics), nil
+	return newOutboundConnection(dst, sniValue, route, metrics), nil
 }
 
 func enableKeepAlive(conn net.Conn) {
