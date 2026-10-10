@@ -2264,9 +2264,8 @@
                     },
                     "version": "v0"
                   },
-                  "refId": "A"
-                },
-                "refId": "B"
+                  "refId": "B"
+                }
               }
             ],
             "queryOptions": {},
