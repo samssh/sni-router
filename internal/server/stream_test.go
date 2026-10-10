@@ -19,7 +19,7 @@ func TestCopyStreamsBidirectional(t *testing.T) {
 
 	metrics := newTestListenerMetrics()
 	ic := newInboundConnection(inbound, metrics)
-	oc := newOutboundConnection(outbound, "prom.example.com", metrics)
+	oc := newOutboundConnection(outbound, "prom.example.com", "prom.example.com", metrics)
 
 	done := make(chan struct{})
 	go func() {
@@ -66,7 +66,7 @@ func TestCloseIdempotent(t *testing.T) {
 
 	metrics := newTestListenerMetrics()
 	ic := newInboundConnection(inbound, metrics)
-	oc := newOutboundConnection(outbound, "prom.example.com", metrics)
+	oc := newOutboundConnection(outbound, "prom.example.com", "prom.example.com", metrics)
 
 	ic.Close()
 	ic.Close()

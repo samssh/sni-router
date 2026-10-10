@@ -71,7 +71,7 @@ func TestProxyHeaderWrittenBeforePayload(t *testing.T) {
 		}
 
 		ic := newInboundConnection(inbound, metrics)
-		oc, err := dialTcp(backendLn.Addr().String(), "prom.example.com", 0, metrics)
+		oc, err := dialTcp(backendLn.Addr().String(), "prom.example.com", "prom.example.com", 0, metrics)
 		if err != nil {
 			_ = client.Close()
 			ic.Close()
@@ -150,7 +150,7 @@ func TestCopyDoesNotPrecedeHeader(t *testing.T) {
 
 	metrics := newTestListenerMetrics()
 	ic := newInboundConnection(router, metrics)
-	oc, err := dialTcp(backendLn.Addr().String(), "prom.example.com", 0, metrics)
+	oc, err := dialTcp(backendLn.Addr().String(), "prom.example.com", "prom.example.com", 0, metrics)
 	if err != nil {
 		t.Fatal(err)
 	}

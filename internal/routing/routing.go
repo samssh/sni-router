@@ -117,14 +117,17 @@ func build(allRoutes []Route) (*SNIRouter, error) {
 	return s, nil
 }
 
-func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, time.Duration, error) {
+// Match returns the route a connection takes: the first matching route, the non-tls route for
+// non-tls traffic, otherwise the default route.
+func (s *SNIRouter) Match(sniValue string, isTls bool) (*Route, error) {
 	if !isTls {
 		if s.nonTlsRoute == nil {
-			return false, "", 0, fmt.Errorf("no non-tls route for non-tls connection")
+			return nil, fmt.Errorf("no non-tls route for non-tls connection")
 		}
-		return destination(s.nonTlsRoute)
+		return s.nonTlsRoute, nil
 	}
-	for _, route := range s.Routes {
+	for i := range s.Routes {
+		route := &s.Routes[i]
 		var match bool
 		if route.UseRegex {
 			match = route.compiled != nil && route.compiled.MatchString(sniValue)
@@ -135,12 +138,22 @@ func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, time.Durat
 			match = !match
 		}
 		if match {
-			return destination(&route)
+			return route, nil
 		}
 	}
-	return destination(s.defaultRoute)
+	return s.defaultRoute, nil
 }
 
-func destination(route *Route) (bool, string, time.Duration, error) {
-	return route.UseProxy, net.JoinHostPort(route.Host, strconv.Itoa(route.Port)), time.Duration(route.DialTimeout) * time.Second, nil
+func (s *SNIRouter) Route(sniValue string, isTls bool) (bool, string, time.Duration, error) {
+	route, err := s.Match(sniValue, isTls)
+	if err != nil {
+		return false, "", 0, err
+	}
+	useProxy, addr, timeout := route.Destination()
+	return useProxy, addr, timeout, nil
+}
+
+// Destination returns whether to send a PROXY header, the backend address and the dial timeout.
+func (r *Route) Destination() (bool, string, time.Duration) {
+	return r.UseProxy, net.JoinHostPort(r.Host, strconv.Itoa(r.Port)), time.Duration(r.DialTimeout) * time.Second
 }

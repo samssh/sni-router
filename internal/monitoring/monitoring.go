@@ -127,24 +127,26 @@ func (lm *ListenerMetrics) ObserveWriteByteInboundConnection(byteWritten int) {
 	lm.m.inboundConnectionsBytesOutTotal.WithLabelValues(lm.name).Add(float64(byteWritten))
 }
 
-func (lm *ListenerMetrics) ObserveOpenOutboundConnection(dst, sni string) {
+// The route label is the matched route's domain ("default" and "non-tls" for those routes), so
+// its values are bounded by the config while still telling which name a connection used.
+func (lm *ListenerMetrics) ObserveOpenOutboundConnection(dst, sni, route string) {
 	sni = sniLabel(sni)
-	lm.m.outboundConnectionsTotal.WithLabelValues(lm.name, dst, sni).Inc()
-	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni).Inc()
+	lm.m.outboundConnectionsTotal.WithLabelValues(lm.name, dst, sni, route).Inc()
+	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni, route).Inc()
 }
 
-func (lm *ListenerMetrics) ObserveCloseOutboundConnection(dst, sni string, openTime time.Duration) {
+func (lm *ListenerMetrics) ObserveCloseOutboundConnection(dst, sni, route string, openTime time.Duration) {
 	sni = sniLabel(sni)
-	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni).Dec()
-	lm.m.outboundConnectionsTimeSeconds.WithLabelValues(lm.name, dst, sni).Observe(openTime.Seconds())
+	lm.m.outboundConnectionsOpen.WithLabelValues(lm.name, dst, sni, route).Dec()
+	lm.m.outboundConnectionsTimeSeconds.WithLabelValues(lm.name, dst, sni, route).Observe(openTime.Seconds())
 }
 
-func (lm *ListenerMetrics) ObserveReadByteOutboundConnection(dst, sni string, byteRead int) {
-	lm.m.outboundConnectionsBytesInTotal.WithLabelValues(lm.name, dst, sniLabel(sni)).Add(float64(byteRead))
+func (lm *ListenerMetrics) ObserveReadByteOutboundConnection(dst, sni, route string, byteRead int) {
+	lm.m.outboundConnectionsBytesInTotal.WithLabelValues(lm.name, dst, sniLabel(sni), route).Add(float64(byteRead))
 }
 
-func (lm *ListenerMetrics) ObserveWriteByteOutboundConnection(dst, sni string, byteWrite int) {
-	lm.m.outboundConnectionsBytesOutTotal.WithLabelValues(lm.name, dst, sniLabel(sni)).Add(float64(byteWrite))
+func (lm *ListenerMetrics) ObserveWriteByteOutboundConnection(dst, sni, route string, byteWrite int) {
+	lm.m.outboundConnectionsBytesOutTotal.WithLabelValues(lm.name, dst, sniLabel(sni), route).Add(float64(byteWrite))
 }
 
 func (lm *ListenerMetrics) ObserveConnectionError(reason string) {
@@ -205,28 +207,28 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 			Namespace: namespace,
 			Name:      "outbound_connections_total",
 			Help:      "Total number of outbound connections",
-		}, []string{"listener", "dst", "sni"}),
+		}, []string{"listener", "dst", "sni", "route"}),
 		outboundConnectionsOpen: factory.NewGaugeVec(prometheus.GaugeOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_open",
 			Help:      "Number of open outbound connections",
-		}, []string{"listener", "dst", "sni"}),
+		}, []string{"listener", "dst", "sni", "route"}),
 		outboundConnectionsBytesInTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_in_total",
 			Help:      "Total number of bytes received from outbound connections",
-		}, []string{"listener", "dst", "sni"}),
+		}, []string{"listener", "dst", "sni", "route"}),
 		outboundConnectionsBytesOutTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_bytes_out_total",
 			Help:      "Total number of bytes sent to outbound connections",
-		}, []string{"listener", "dst", "sni"}),
+		}, []string{"listener", "dst", "sni", "route"}),
 		outboundConnectionsTimeSeconds: factory.NewHistogramVec(prometheus.HistogramOpts{
 			Namespace: namespace,
 			Name:      "outbound_connections_time_seconds",
 			Help:      "Histogram of time to outbound connections is open in seconds",
 			Buckets:   connBuckets,
-		}, []string{"listener", "dst", "sni"}),
+		}, []string{"listener", "dst", "sni", "route"}),
 		connectionErrorsTotal: factory.NewCounterVec(prometheus.CounterOpts{
 			Namespace: namespace,
 			Name:      "connection_errors_total",

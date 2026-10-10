@@ -364,3 +364,60 @@ func TestManagerShutdown(t *testing.T) {
 		return false
 	})
 }
+
+// Outbound series carry the matched route's domain, so a config's names can be told apart
+// without a label per arbitrary SNI.
+func TestListenerLabelsOutboundByRoute(t *testing.T) {
+	prom := startTLSBackend(t, "prom")
+	fallback := startTLSBackend(t, "default")
+	promHost, promPort := backendRoute(t, prom)
+	defHost, defPort := backendRoute(t, fallback)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ln.Close() })
+	m, reg := newTestManager(0)
+	// hold the reference a live listener holds, or its series go away with each last connection
+	m.acquireSeries("127.0.0.1:0")
+	go m.newListener(testSpec(t, netip.MustParseAddrPort("127.0.0.1:0"), 0, []routing.Route{
+		{Domain: "prom.example.com", Host: promHost, Port: promPort},
+		{Domain: "default", Host: defHost, Port: defPort},
+	})).serve(ln)
+
+	for _, name := range []string{"prom.example.com", "unknown.example.com"} {
+		resp, err := routerHTTPClient(ln.Addr().String(), name).Get("https://" + name + "/health")
+		if err != nil {
+			t.Fatal(err)
+		}
+		_ = resp.Body.Close()
+	}
+
+	outboundTotal := func(route string) float64 {
+		families, err := reg.Gather()
+		if err != nil {
+			t.Fatal(err)
+		}
+		var sum float64
+		for _, family := range families {
+			if family.GetName() != "sni_router_outbound_connections_total" {
+				continue
+			}
+			for _, metric := range family.GetMetric() {
+				if hasLabel(metric.GetLabel(), "route", route) {
+					sum += metric.GetCounter().GetValue()
+				}
+			}
+		}
+		return sum
+	}
+	for _, route := range []string{"prom.example.com", "default"} {
+		if got := outboundTotal(route); got < 1 {
+			t.Errorf("outbound connections with route=%q = %v, want at least 1", route, got)
+		}
+	}
+	if got := outboundTotal("unknown.example.com"); got != 0 {
+		t.Errorf("an unrouted sni got its own route label (%v connections)", got)
+	}
+}
