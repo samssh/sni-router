@@ -83,7 +83,7 @@ func TestLoadSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if s.shutdownTimeout != 30*time.Second || s.metricsPort != 9113 || s.maxConns != 0 {
+	if s.shutdownTimeout != 30*time.Second || s.metricsAddr != ":9113" || s.maxConns != 0 {
 		t.Fatalf("unexpected defaults: %+v", s)
 	}
 	for _, name := range []string{"SHUTDOWN_TIMEOUT_SECONDS", "METRICS_PORT", "MAX_CONNECTIONS"} {
@@ -93,6 +93,26 @@ func TestLoadSettings(t *testing.T) {
 				t.Fatalf("err = %v, want a parse error naming %s", err, name)
 			}
 		})
+	}
+}
+
+func TestMetricsAddr(t *testing.T) {
+	for host, want := range map[string]string{"127.0.0.1": "127.0.0.1:9200", "::1": "[::1]:9200", "": ":9200"} {
+		t.Run(host, func(t *testing.T) {
+			t.Setenv("METRICS_HOST", host)
+			t.Setenv("METRICS_PORT", "9200")
+			s, err := loadSettings()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if s.metricsAddr != want {
+				t.Fatalf("metricsAddr = %q, want %q", s.metricsAddr, want)
+			}
+		})
+	}
+	t.Setenv("METRICS_HOST", "localhost")
+	if _, err := loadSettings(); err == nil || !strings.Contains(err.Error(), "METRICS_HOST") {
+		t.Fatalf("err = %v, want an error naming METRICS_HOST", err)
 	}
 }
 

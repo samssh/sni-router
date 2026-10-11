@@ -1,7 +1,6 @@
 package monitoring
 
 import (
-	"fmt"
 	"log/slog"
 	"net/http"
 	"time"
@@ -248,9 +247,9 @@ func NewMetricsWithRegisterer(reg prometheus.Registerer) *Metrics {
 	}
 }
 
-func (*Metrics) Start(port int) {
-	slog.Info("metrics server listening", "port", port)
-	if err := http.ListenAndServe(fmt.Sprintf(":%d", port), promhttp.Handler()); err != nil {
+func (*Metrics) Start(addr string) {
+	slog.Info("metrics server listening", "addr", addr)
+	if err := http.ListenAndServe(addr, promhttp.Handler()); err != nil {
 		slog.Error("metrics server failed", "error", err)
 	}
 }

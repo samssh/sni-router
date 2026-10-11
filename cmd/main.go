@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net"
 	"os"
 	"os/signal"
 	"sni-router/internal/config"
@@ -51,7 +52,7 @@ func getStringEnv(env string, defaultValue string) string {
 
 type settings struct {
 	configPath      string
-	metricsPort     int
+	metricsAddr     string
 	maxConns        int
 	shutdownTimeout time.Duration
 }
@@ -59,10 +60,16 @@ type settings struct {
 // loadSettings reads every env var up front, so a bad value fails at startup instead of on SIGTERM.
 func loadSettings() (settings, error) {
 	s := settings{configPath: getStringEnv("ROUTING_CONFIG_PATH", "/etc/sni-router/routing.yaml")}
-	var err error
-	if s.metricsPort, err = getIntEnv("METRICS_PORT", 9113); err != nil {
+	metricsPort, err := getIntEnv("METRICS_PORT", 9113)
+	if err != nil {
 		return settings{}, err
 	}
+	// empty means every address, as before
+	metricsHost := getStringEnv("METRICS_HOST", "")
+	if metricsHost != "" && net.ParseIP(metricsHost) == nil {
+		return settings{}, fmt.Errorf("METRICS_HOST must be an IP address, got %q", metricsHost)
+	}
+	s.metricsAddr = net.JoinHostPort(metricsHost, strconv.Itoa(metricsPort))
 	if s.maxConns, err = getIntEnv("MAX_CONNECTIONS", 0); err != nil {
 		return settings{}, err
 	}
@@ -119,7 +126,7 @@ func main() {
 		fatal("invalid routing config", "path", cfg.configPath, "error", err)
 	}
 	metrics := monitoring.NewMetrics()
-	go metrics.Start(cfg.metricsPort)
+	go metrics.Start(cfg.metricsAddr)
 	mgr := server.NewManager(metrics, cfg.maxConns)
 	if err := mgr.Apply(listeners); err != nil {
 		fatal("startup failed", "error", err)

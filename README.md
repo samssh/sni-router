@@ -93,6 +93,7 @@ The PROXY v2 destination is the address the client connected to on that listener
 | --- | --- | --- |
 | `ROUTING_CONFIG_PATH` | `/etc/sni-router/routing.yaml` | Config file |
 | `METRICS_PORT` | `9113` | Prometheus `/metrics` port |
+| `METRICS_HOST` | empty (every address) | IP the metrics server binds, e.g. `127.0.0.1` to keep it off the network |
 | `MAX_CONNECTIONS` | `0` (unlimited) | In-flight cap across all listeners; extras are closed and counted as `max_conns`. A connection must also fit its listener's `maxConnections`. |
 | `SHUTDOWN_TIMEOUT_SECONDS` | `30` | Drain time on SIGTERM/SIGINT; leftovers are then closed. Whole seconds; validated at startup. |
 | `LOG_LEVEL` | `info` | `debug`, `info`, `warn` or `error` |
